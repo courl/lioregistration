@@ -1,0 +1,13 @@
+{
+  "entry": [
+    "./auto-imports.d.ts",
+    "./components.d.ts",
+    "src/pages/**/*.vue",
+    "src/layouts/**/*.vue",
+    "src/env.d.ts"
+  ],
+  "project": ["**/*.{js,vue,ts}"],
+  "paths": {
+    "@/*": ["src/*"]
+  }
+}

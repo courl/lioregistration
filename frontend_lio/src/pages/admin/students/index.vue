@@ -1,0 +1,23 @@
+<script setup lang="ts">
+import { ref } from "vue"
+import { useRouter } from "vue-router"
+
+import type { Student } from "@/types/student.ts"
+
+import { useStudents } from "@/composables/use-student.ts"
+
+const router = useRouter()
+const query = ref<string>("")
+const { students, loading } = useStudents(query)
+
+async function onSelect(student: Student) {
+  await router.push(`/admin/students/${student.id.toString()}`)
+}
+</script>
+
+<template>
+  <PageHeader title="Students">
+    <template #subtitle> Every participant, across all editions. </template>
+  </PageHeader>
+  <StudentTable :students="students" :loading="loading" @select="onSelect" />
+</template>

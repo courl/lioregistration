@@ -1,0 +1,13 @@
+pub mod admin_user;
+pub mod credentials;
+pub mod edition;
+pub mod email_attachment_template;
+pub mod email_template;
+pub mod job;
+pub mod registration;
+pub mod round;
+pub mod round_participation;
+pub mod school;
+pub mod student;
+pub mod task;
+pub mod task_score;
