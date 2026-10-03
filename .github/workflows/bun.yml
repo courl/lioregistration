@@ -13,11 +13,16 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: frontend_lio
+
     steps:
       - name: Setup repo
         uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2 
 
-      - run: bun install 
+      - uses: oven-sh/setup-bun@v2
+  
+      - run: bun install --frozen-lockfile
       - run: bun run check
       - run: bun run build
