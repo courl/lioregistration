@@ -37,7 +37,7 @@ const RegisterSchema = z.object({
   grade: z.string("Grade is required"),
   programming_languages: z.enum(PROGRAMMING_LANGUAGE).array(),
   first_contact_source: z.enum(FIRST_CONTACT),
-  first_contact_other: z.string().optional()
+  first_contact_other: z.string().optional(),
 })
 
 type RegisterData = z.output<typeof RegisterSchema>
@@ -257,16 +257,15 @@ async function onSubmit(event: FormSubmitEvent<RegisterData>) {
                 icon="i-lucide-megaphone"
               />
             </UFormField>
-
           </div>
           <UFormField
-              v-show="state.first_contact_source === 'Other'"
-              name="first_contact_other"
+            v-show="state.first_contact_source === 'Other'"
+            name="first_contact_other"
           >
             <UTextarea
-                v-model="state.first_contact_other"
-                placeholder="Tell us more on how you heard about us"
-                class="w-full"
+              v-model="state.first_contact_other"
+              placeholder="Tell us more on how you heard about us"
+              class="w-full"
             />
           </UFormField>
         </section>

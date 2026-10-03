@@ -35,12 +35,14 @@ const items = computed(() => {
       label: "Settings",
       icon: "i-lucide-settings",
       active: route.path.startsWith("/admin/settings"),
-      children: [{
-        label: "Emails",
-        icon: "i-lucide-mail",
-        to: "/admin/settings/emails",
-        active: route.path.startsWith("/admin/settings/emails")
-      }]
+      children: [
+        {
+          label: "Emails",
+          icon: "i-lucide-mail",
+          to: "/admin/settings/emails",
+          active: route.path.startsWith("/admin/settings/emails"),
+        },
+      ],
     },
   ] as NavigationMenuItem[]
 })

@@ -9,12 +9,11 @@ use crate::services::email_attachment::EmailAttachmentContext;
 use crate::utils::email_template::{
     EmailTemplate, GlobalContext, InstanceContext, apply_global_ctx, apply_instance_ctx,
 };
-use crate::{jobs, services};
+use crate::jobs;
 use base64::Engine;
 use chrono::Local;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
 use serde::Serialize;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 #[derive(Serialize)]
@@ -44,7 +43,7 @@ async fn create_attachment_preview(
             instance_ctx,
         );
         let data =
-            super::email_attachment::compile_typst_to_pdf(content.as_str(), &email_attachment_ctx);
+            super::email_attachment::compile_typst_to_pdf(content.as_str(), email_attachment_ctx);
         result.push(match data {
             Ok(bytes) => AttachmentPreview {
                 name: attachment.name.clone(),

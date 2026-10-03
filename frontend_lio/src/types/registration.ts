@@ -13,7 +13,7 @@ export const FIRST_CONTACT = [
   "LinkedIn",
   "Poster",
   "Instagram",
-  "Other"
+  "Other",
 ] as const
 
 export const PROGRAMMING_LANGUAGE = ["Python", "C/C++", "Java"] as const

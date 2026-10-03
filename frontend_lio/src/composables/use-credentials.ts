@@ -43,7 +43,20 @@ export const useCredentials = (id: MaybeRefOrGetter<EditionId | undefined>) => {
     await reload(toValue(id))
   }
 
+  const unassignCredentials = async (id_: CredentialId) => {
+    await api(`/admin/credentials/${id_.toString()}/unassign`, {
+      method: "POST",
+    })
+    await reload(toValue(id))
+  }
+
   watch(() => toValue(id), reload, { immediate: true })
 
-  return { credentials: items, loading, createCredentials, deleteCredentials }
+  return {
+    credentials: items,
+    loading,
+    createCredentials,
+    unassignCredentials,
+    deleteCredentials,
+  }
 }

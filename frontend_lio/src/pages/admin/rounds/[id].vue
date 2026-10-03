@@ -4,10 +4,10 @@ import { useRouter } from "vue-router"
 
 import type { ParticipationData } from "@/components/rounds/modals/RoundParticipationModal.schema.ts"
 
+import RoundEmailCard from "@/components/rounds/RoundEmailCard.vue"
 import { useRound, useRounds } from "@/composables/use-round.ts"
 import { useRouteId } from "@/composables/use-route-id.js"
 import { type Participant, type RoundId } from "@/types/round.ts"
-import RoundEmailCard from "@/components/rounds/RoundEmailCard.vue"
 
 const router = useRouter()
 

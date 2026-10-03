@@ -76,9 +76,7 @@ const state = computed<(typeof TABS)[number]>({
   />
 
   <template v-if="state === 'stats'">
-    <EditionStatisticsTab
-      :edition="edition"
-    />
+    <EditionStatisticsTab :edition="edition" />
   </template>
   <template v-else-if="state === 'registrations'">
     <EditionRegistrationsTab :edition="edition" />

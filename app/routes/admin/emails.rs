@@ -8,18 +8,12 @@ use crate::state::AppState;
 use crate::utils::email_template::{GlobalContext, InstanceContext};
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::{
-    body::Bytes,
-    http::{HeaderMap, header},
-    response::IntoResponse,
-};
 use axum_extra::extract::Query;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, IntoActiveModel, ModelTrait,
     QueryFilter,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 #[derive(Serialize)]
 pub struct EmailTemplate {

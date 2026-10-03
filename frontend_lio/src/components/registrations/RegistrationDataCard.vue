@@ -99,10 +99,10 @@ const genderIcon = computed(() => {
           {{ registration.first_contact_source }}
         </div>
         <div class="flex items-center gap-2 -mt-2">
-          <div
-              class="size-4 shrink-0"
-          />
-        <span class="text-muted">{{ registration.first_contact_other ?? ''}}</span>
+          <div class="size-4 shrink-0" />
+          <span class="text-muted">{{
+            registration.first_contact_other ?? ""
+          }}</span>
         </div>
       </section>
 
