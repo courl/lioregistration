@@ -3,13 +3,13 @@ use crate::entity::{
     credentials, email_attachment_template, email_template, registration, round, school,
 };
 use crate::error::{AppError, AppResult};
+use crate::jobs;
 use crate::jobs::Job;
 use crate::jobs::send_email::SendEmailPayload;
 use crate::services::email_attachment::EmailAttachmentContext;
 use crate::utils::email_template::{
     EmailTemplate, GlobalContext, InstanceContext, apply_global_ctx, apply_instance_ctx,
 };
-use crate::jobs;
 use base64::Engine;
 use chrono::Local;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
@@ -204,7 +204,7 @@ pub async fn send_round_email(
             })?;
             let school = schools
                 .iter()
-                .find(|s| s.id == registration.id)
+                .find(|s| s.id == registration.school_id)
                 .ok_or_else(|| {
                     AppError::Internal(anyhow::anyhow!(
                         "Database corruption: cannot find school for registration"

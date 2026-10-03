@@ -105,7 +105,6 @@ pub async fn get_templates(
     auth: Auth,
 ) -> AppResult<Json<Vec<EmailTemplate>>> {
     auth.verify(vec![UserRole::Observer, UserRole::Admin])?;
-    tracing::error!("{:?}", filter.types);
     let emails = if !filter.types.is_empty() {
         email_template::Entity::find()
             .filter(email_template::COLUMN.template_type.is_in(filter.types))
@@ -286,7 +285,6 @@ pub async fn update_attachment(
 
     Ok(Json(attachment.update(&state.db).await?.into()))
 }
-
 
 pub async fn send_email(
     State(state): State<AppState>,

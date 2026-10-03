@@ -1,3 +1,5 @@
+use std::fs::File;
+use std::io::Write;
 use std::sync::Arc;
 
 use crate::entity::{email_attachment_template, email_template};
@@ -203,13 +205,24 @@ impl SendEmailProcessor {
                 )));
             }
         } else {
+            let base = String::from("/tmp/lioregistration/lastmail");
+            let _ = std::fs::create_dir_all(&base);
             tracing::info!(
-                "Sending email from {} to {} ({}) with content\n{}\n\n",
+                "Sending email from {} to {} ({}) in {}",
                 self.sender_email,
                 to.0,
                 to.1,
-                email_content
+                &base
             );
+            if let Ok(mut email) = File::create(base.clone() + "/mail.html") {
+                let _ = email.write_all(&email_content.into_bytes());
+            }
+
+            for attachment in attachments {
+                if let Ok(mut file) = File::create(base.clone() + "/" + attachment.1 + ".pdf") {
+                    let _ = file.write_all(&attachment.2);
+                }
+            }
         };
         Ok(())
     }

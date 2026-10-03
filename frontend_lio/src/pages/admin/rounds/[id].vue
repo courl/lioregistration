@@ -7,10 +7,11 @@ import type { ParticipationData } from "@/components/rounds/modals/RoundParticip
 import RoundEmailCard from "@/components/rounds/RoundEmailCard.vue"
 import { useRound, useRounds } from "@/composables/use-round.ts"
 import { useRouteId } from "@/composables/use-route-id.js"
+import { type EmailTemplateId } from "@/types/email.ts"
 import { type Participant, type RoundId } from "@/types/round.ts"
 
 const router = useRouter()
-
+const toast = useToast()
 const roundId = useRouteId<RoundId>()
 const {
   round,
@@ -19,6 +20,7 @@ const {
   deleteTask,
   updateParticipation,
   bulkUpdateScores,
+  sendEmail,
 } = useRound(roundId)
 const { rounds, moveTo } = useRounds(() => round.value?.edition.id)
 
@@ -38,6 +40,26 @@ async function processUpdateParticipation(
       data.points[index],
     ]),
   })
+}
+
+async function processSendEmail(
+  email: EmailTemplateId,
+  headline: string,
+  body: string,
+) {
+  try {
+    await sendEmail(email, headline, body)
+
+    toast.add({
+      title: "Email send successfully",
+    })
+  } catch (error) {
+    toast.add({
+      title: "Email not sent",
+      description: error instanceof Error ? error.message : String(error),
+      color: "error",
+    })
+  }
 }
 </script>
 
@@ -96,7 +118,7 @@ async function processUpdateParticipation(
       />
     </template>
     <template v-else-if="state === 'comm'">
-      <RoundEmailCard />
+      <RoundEmailCard @send-mail="processSendEmail" />
     </template>
     <template v-else>
       <UEmpty
