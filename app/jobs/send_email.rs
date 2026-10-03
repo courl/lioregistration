@@ -1,13 +1,15 @@
 use std::sync::Arc;
 
-use crate::entity::email_template;
+use crate::entity::{email_attachment_template, email_template};
 use crate::error::{AppError, AppResult};
 use crate::jobs::worker::{JobResult, WorkerSettings};
-use crate::services::email_attachment::EmailAttachmentContext;
-use crate::utils::email_template::{EmailTemplate, GlobalContext, InstanceContext};
+use crate::services::email_attachment::{EmailAttachmentContext, compile_typst_to_pdf};
+use crate::utils::email_template::{
+    EmailTemplate, GlobalContext, InstanceContext, apply_global_ctx, apply_instance_ctx,
+};
 use mail_send::mail_builder::MessageBuilder;
 use mail_send::{SmtpClient, SmtpClientBuilder};
-use sea_orm::{ConnectionTrait, EntityTrait};
+use sea_orm::{ConnectionTrait, EntityTrait, ModelTrait};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -59,6 +61,11 @@ impl SendEmailProcessor {
                     payload.template_id
                 ))
             })?;
+        let attachments = template
+            .find_related(email_attachment_template::Entity)
+            .all(db)
+            .await?;
+
         let template = EmailTemplate::from_template(
             template.template.as_str(),
             &payload.global_context,
@@ -86,7 +93,18 @@ impl SendEmailProcessor {
             }
         };
 
-        self.send_emails(&mut client, template, payload).await
+        let attachments = attachments
+            .into_iter()
+            .map(|attachment| {
+                (
+                    attachment.name,
+                    apply_global_ctx(attachment.template.as_str(), &payload.global_context),
+                )
+            })
+            .collect();
+
+        self.send_emails(&mut client, template, payload, attachments)
+            .await
     }
 
     async fn send_emails<T>(
@@ -94,6 +112,7 @@ impl SendEmailProcessor {
         client: &mut Option<SmtpClient<T>>,
         template: EmailTemplate,
         payload: SendEmailPayload,
+        attachments: Vec<(String, String)>,
     ) -> AppResult<JobResult>
     where
         T: AsyncRead + AsyncWrite + Unpin,
@@ -103,12 +122,26 @@ impl SendEmailProcessor {
         if let Some(instances) = payload.instances {
             for (email, ctx) in instances {
                 let email_content = template.instantiate(&ctx);
+                let attachments = attachments
+                    .iter()
+                    .map(|(name, content)| {
+                        Ok((
+                            "application/pdf",
+                            name.as_str(),
+                            compile_typst_to_pdf(
+                                apply_instance_ctx(content.as_str(), &ctx).as_str(),
+                                &self.email_attachment_ctx,
+                            )?,
+                        ))
+                    })
+                    .collect::<AppResult<Vec<_>>>()?;
                 if let Err(error) = self
                     .send_one_email(
                         client,
                         email_content,
                         (ctx.given_name + " " + ctx.family_name.as_ref(), email),
                         payload.global_context.headline.clone(),
+                        attachments,
                     )
                     .await
                 {
@@ -123,6 +156,7 @@ impl SendEmailProcessor {
                 template.raw(),
                 ("Admin".into(), self.admin_email.clone()),
                 "LIO Alert".into(),
+                Vec::new(),
             )
             .await?;
         };
@@ -142,16 +176,21 @@ impl SendEmailProcessor {
         email_content: String,
         to: (String, String),
         subject: String,
+        attachments: Vec<(&str, &str, Vec<u8>)>,
     ) -> AppResult<()>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
         if let Some(client) = client {
-            let message = MessageBuilder::new()
+            let mut message = MessageBuilder::new()
                 .from(self.sender_email.clone())
                 .to(vec![(to.0.clone(), to.1.clone())])
                 .subject(subject.clone())
                 .html_body(email_content);
+
+            for attachment in attachments {
+                message = message.attachment(attachment.0, attachment.1, attachment.2);
+            }
 
             if let Err(error) = client.send(message).await {
                 return Err(AppError::Internal(anyhow::anyhow!(

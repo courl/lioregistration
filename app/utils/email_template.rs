@@ -86,17 +86,8 @@ impl EmailTemplate {
         body_markdown: &str,
     ) -> Result<Self, EmailRenderError> {
         let content_html = markdown_to_email_html(body_markdown);
-        let empty_string = String::new();
-        let filled_mjml = template
-            .replace("{{!headline}}", &ctx.headline)
+        let filled_mjml = apply_global_ctx(template, ctx)
             .replace("{{!content}}", &content_html)
-            .replace("{{!edition}}", &ctx.edition)
-            .replace("{{!round}}", ctx.round.as_ref().unwrap_or(&empty_string))
-            .replace(
-                "{{!round_starts_at}}",
-                ctx.round_starts_at.to_string().as_str(),
-            )
-            .replace("{{!round_ends_at}}", ctx.round_ends_at.to_string().as_str())
             .replace(
                 "{{!students}}",
                 generate_student_table(&ctx.students).as_str(),
@@ -114,23 +105,40 @@ impl EmailTemplate {
     }
 
     pub fn instantiate(&self, ctx: &InstanceContext) -> String {
-        let empty_string = String::new();
-        self.html
-            .replace("{{given_name}}", &ctx.given_name)
-            .replace("{{family_name}}", &ctx.family_name)
-            .replace("{{school}}", &ctx.school)
-            .replace("{{grade}}", &ctx.grade)
-            .replace(
-                "{{credentials_username}}",
-                ctx.credentials_username.as_ref().unwrap_or(&empty_string),
-            )
-            .replace(
-                "{{credentials_password}}",
-                ctx.credentials_password.as_ref().unwrap_or(&empty_string),
-            )
+        apply_instance_ctx(self.html.as_str(), ctx)
     }
 
     pub fn raw(&self) -> String {
         self.html.clone()
     }
+}
+
+pub fn apply_global_ctx(string: &str, ctx: &GlobalContext) -> String {
+    let empty_string = String::new();
+    string
+        .replace("{{!headline}}", &ctx.headline)
+        .replace("{{!edition}}", &ctx.edition)
+        .replace("{{!round}}", ctx.round.as_ref().unwrap_or(&empty_string))
+        .replace(
+            "{{!round_starts_at}}",
+            ctx.round_starts_at.to_string().as_str(),
+        )
+        .replace("{{!round_ends_at}}", ctx.round_ends_at.to_string().as_str())
+}
+
+pub fn apply_instance_ctx(string: &str, ctx: &InstanceContext) -> String {
+    let empty_string = String::new();
+    string
+        .replace("{{given_name}}", &ctx.given_name)
+        .replace("{{family_name}}", &ctx.family_name)
+        .replace("{{school}}", &ctx.school)
+        .replace("{{grade}}", &ctx.grade)
+        .replace(
+            "{{credentials_username}}",
+            ctx.credentials_username.as_ref().unwrap_or(&empty_string),
+        )
+        .replace(
+            "{{credentials_password}}",
+            ctx.credentials_password.as_ref().unwrap_or(&empty_string),
+        )
 }

@@ -8,17 +8,17 @@ use crate::state::AppState;
 use crate::utils::email_template::{GlobalContext, InstanceContext};
 use axum::Json;
 use axum::extract::{Path, State};
-use axum_extra::extract::Query;
-use sea_orm::{
-    ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter,
-};
-use serde::{Deserialize, Serialize};
 use axum::{
-    body::StreamBody,
-    http::{header, HeaderMap, StatusCode},
+    body::Bytes,
+    http::{HeaderMap, header},
     response::IntoResponse,
 };
-use tokio_util::io::ReaderStream;
+use axum_extra::extract::Query;
+use sea_orm::{
+    ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, IntoActiveModel, ModelTrait,
+    QueryFilter,
+};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 #[derive(Serialize)]
@@ -62,6 +62,19 @@ pub struct SendEmailRequest {
     body: String,
 }
 
+#[derive(Deserialize)]
+pub struct UpdateAttachmentRequest {
+    name: String,
+    template: String,
+}
+
+#[derive(Serialize)]
+pub struct EmailAttachment {
+    id: i32,
+    name: String,
+    template: String,
+}
+
 impl From<email_template::Model> for EmailTemplate {
     fn from(model: email_template::Model) -> Self {
         Self {
@@ -78,6 +91,16 @@ impl From<email_template::Model> for EmailTemplateDetails {
         Self {
             email: model.into(),
             template,
+        }
+    }
+}
+
+impl From<email_attachment_template::Model> for EmailAttachment {
+    fn from(model: email_attachment_template::Model) -> Self {
+        Self {
+            id: model.id,
+            name: model.name,
+            template: model.template,
         }
     }
 }
@@ -164,44 +187,112 @@ pub async fn preview_template(
         .await?
         .ok_or_else(|| AppError::NotFound("Template does not exist".into()))?;
 
+    let attachments = template
+        .find_related(email_attachment_template::Entity)
+        .all(&state.db)
+        .await?;
+
     Ok(Json(
         services::email_generation::preview_email(
             &template,
+            &attachments,
             request.body.as_str(),
             &request.global_context,
             &request.instance_context,
+            &state.email_attachment_ctx,
         )
         .await,
     ))
 }
 
-pub async fn preview_attachment(
+pub async fn get_attachments(
+    State(state): State<AppState>,
+    auth: Auth,
+    Path(id): Path<i32>,
+) -> AppResult<Json<Vec<EmailAttachment>>> {
+    auth.verify(vec![UserRole::Admin])?;
+    Ok(Json(
+        email_attachment_template::Entity::find()
+            .filter(email_attachment_template::COLUMN.template_id.eq(id))
+            .all(&state.db)
+            .await?
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+    ))
+}
+
+pub async fn get_attachment(
     State(state): State<AppState>,
     auth: Auth,
     Path((id, attachment_id)): Path<(i32, i32)>,
-    Json(request): Json<PreviewRequest>) -> AppResult<impl IntoResponse>
-{
-    auth.verify(vec![UserRole::Admin]);
-   
-    let ctx = Arc::new(services::email_attachment::EmailAttachmentContext::create("".into())?);
-
-    let attachment = email_attachment_template::Entity::find_by_id(attachment_id).filter(email_attachment_template::COLUMN.template_id.eq(id)).one(&state.db).await?.ok_or_else(|| AppError::NotFound("Attachment does not exist".into()))?;
-
-    let data = services::email_attachment::compile_typst_to_pdf(attachment.template.into(), ctx)?;
-
-    let stream = ReaderStream::new(data.as_slice());
-    let body = StreamBody::new(stream);
-
-    // 3. Set headers for PDF display or download
-    let mut headers = HeaderMap::new();
-    headers.insert(header::CONTENT_TYPE, "application/pdf".parse().unwrap());
-    headers.insert(
-        header::CONTENT_DISPOSITION,
-        "inline; filename=\"document.pdf\"".parse().unwrap(),
-    );
-    
-    return Ok((headers, body))
+) -> AppResult<Json<EmailAttachment>> {
+    auth.verify(vec![UserRole::Admin])?;
+    Ok(Json(
+        email_attachment_template::Entity::find_by_id(attachment_id)
+            .filter(email_attachment_template::COLUMN.template_id.eq(id))
+            .one(&state.db)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Attachment does not exist".into()))?
+            .into(),
+    ))
 }
+
+pub async fn delete_attachment(
+    State(state): State<AppState>,
+    auth: Auth,
+    Path((id, attachment_id)): Path<(i32, i32)>,
+) -> AppResult<()> {
+    auth.verify(vec![UserRole::Admin])?;
+    email_attachment_template::Entity::find_by_id(attachment_id)
+        .filter(email_attachment_template::COLUMN.template_id.eq(id))
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Attachmen does not exist".into()))?
+        .delete(&state.db)
+        .await?;
+    Ok(())
+}
+
+pub async fn add_attachment(
+    State(state): State<AppState>,
+    auth: Auth,
+    Path(id): Path<i32>,
+) -> AppResult<Json<EmailAttachment>> {
+    auth.verify(vec![UserRole::Admin])?;
+    let email = email_template::Entity::find_by_id(id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Email does not exist".into()))?;
+
+    Ok(Json(
+        email_attachment_template::ActiveModel::create("New attachment".into(), email, "".into())
+            .insert(&state.db)
+            .await?
+            .into(),
+    ))
+}
+
+pub async fn update_attachment(
+    State(state): State<AppState>,
+    auth: Auth,
+    Path((id, attachment_id)): Path<(i32, i32)>,
+    Json(request): Json<UpdateAttachmentRequest>,
+) -> AppResult<Json<EmailAttachment>> {
+    auth.verify(vec![UserRole::Admin])?;
+    let mut attachment = email_attachment_template::Entity::find_by_id(attachment_id)
+        .filter(email_attachment_template::COLUMN.template_id.eq(id))
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Attachmen does not exist".into()))?
+        .into_active_model();
+
+    attachment.name = ActiveValue::Set(request.name);
+    attachment.template = ActiveValue::Set(request.template);
+
+    Ok(Json(attachment.update(&state.db).await?.into()))
+}
+
 
 pub async fn send_email(
     State(state): State<AppState>,

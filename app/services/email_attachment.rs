@@ -18,21 +18,17 @@ pub struct EmailAttachmentContext {
 
 impl EmailAttachmentContext {
     pub fn create(assets_root: PathBuf) -> AppResult<Self> {
-        // Fonts are loaded without deep traversal, we only look at one level
-        let fonts: Vec<PathBuf> = assets_root
-            .read_dir()
-            .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.path())
-            .filter(|path| {
-                matches!(
-                    path.extension().and_then(|e| e.to_str()),
-                    Some("otf") | Some("ttf")
-                )
-            })
-            .collect();
+        let mut book = FontBook::new();
+        let mut fonts = Vec::new();
 
-        let (book, fonts) = load_fonts(fonts)?;
+        // 1. Embedded fallback fonts (always available)
+        for data in typst_assets::fonts() {
+            for font in Font::iter(Bytes::new(data)) {
+                book.push(font.info().clone());
+                fonts.push(font);
+            }
+        }
+
         Ok(Self {
             root: assets_root,
             library: LazyHash::new(Library::default()),
@@ -104,24 +100,6 @@ impl World for EmailAttachmentWorld {
     fn today(&self, _offset: Option<typst::foundations::Duration>) -> Option<Datetime> {
         Datetime::from_ymd(2026, 8, 23)
     }
-}
-
-fn load_fonts(font_paths: Vec<PathBuf>) -> AppResult<(FontBook, Vec<Font>)> {
-    let mut book = FontBook::new();
-    let mut fonts = Vec::new();
-    for path in font_paths {
-        let data = Bytes::new(
-            std::fs::read(path)
-                .map_err(|e| AppError::Internal(anyhow::anyhow!("Cannot load font: {:#?}", e)))?,
-        );
-        let mut index = 0;
-        while let Some(font) = Font::new(data.clone(), index) {
-            book.push(font.info().clone());
-            fonts.push(font);
-            index += 1;
-        }
-    }
-    Ok((book, fonts))
 }
 
 pub fn compile_typst_to_pdf(source: &str, ctx: &Arc<EmailAttachmentContext>) -> AppResult<Vec<u8>> {

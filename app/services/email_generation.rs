@@ -1,33 +1,90 @@
 use crate::entity::email_template::TemplateType;
-use crate::entity::{credentials, email_template, registration, round, school};
+use crate::entity::{
+    credentials, email_attachment_template, email_template, registration, round, school,
+};
 use crate::error::{AppError, AppResult};
-use crate::jobs;
 use crate::jobs::Job;
 use crate::jobs::send_email::SendEmailPayload;
-use crate::utils::email_template::{EmailTemplate, GlobalContext, InstanceContext};
+use crate::services::email_attachment::EmailAttachmentContext;
+use crate::utils::email_template::{
+    EmailTemplate, GlobalContext, InstanceContext, apply_global_ctx, apply_instance_ctx,
+};
+use crate::{jobs, services};
+use base64::Engine;
 use chrono::Local;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
 use serde::Serialize;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+#[derive(Serialize)]
+pub struct AttachmentPreview {
+    name: String,
+    data_base64: Option<String>,
+    error: Option<String>,
+}
 
 #[derive(Serialize)]
 pub struct EmailPreview {
     html: Option<String>,
+    attachments: Vec<AttachmentPreview>,
     error: Option<String>,
+}
+
+async fn create_attachment_preview(
+    attachments: &Vec<email_attachment_template::Model>,
+    global_ctx: &GlobalContext,
+    instance_ctx: &InstanceContext,
+    email_attachment_ctx: &Arc<EmailAttachmentContext>,
+) -> Vec<AttachmentPreview> {
+    let mut result = Vec::new();
+    for attachment in attachments {
+        let content = apply_instance_ctx(
+            apply_global_ctx(attachment.template.as_str(), global_ctx).as_str(),
+            instance_ctx,
+        );
+        let data =
+            super::email_attachment::compile_typst_to_pdf(content.as_str(), &email_attachment_ctx);
+        result.push(match data {
+            Ok(bytes) => AttachmentPreview {
+                name: attachment.name.clone(),
+                data_base64: Some(base64::prelude::BASE64_STANDARD.encode(bytes)),
+                error: None,
+            },
+            Err(error) => AttachmentPreview {
+                name: attachment.name.clone(),
+                data_base64: None,
+                error: Some(error.to_string()),
+            },
+        });
+    }
+
+    result
 }
 
 pub async fn preview_email(
     template: &email_template::Model,
+    attachments: &Vec<email_attachment_template::Model>,
     body_markdown: &str,
     global_ctx: &GlobalContext,
     instance_ctx: &InstanceContext,
+    email_attachment_ctx: &Arc<EmailAttachmentContext>,
 ) -> EmailPreview {
     match EmailTemplate::from_template(template.template.as_str(), global_ctx, body_markdown) {
         Ok(template) => EmailPreview {
             html: Some(template.instantiate(instance_ctx)),
+            attachments: create_attachment_preview(
+                attachments,
+                global_ctx,
+                instance_ctx,
+                email_attachment_ctx,
+            )
+            .await,
             error: None,
         },
         Err(e) => EmailPreview {
             html: None,
+            attachments: Vec::new(),
             error: Some(e.to_string()),
         },
     }

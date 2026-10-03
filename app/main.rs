@@ -9,6 +9,7 @@ mod settings;
 mod state;
 pub mod utils;
 
+use crate::services::email_attachment::EmailAttachmentContext;
 use crate::state::AppState;
 use crate::utils::{rate_limiter::RateLimiter, token_generator::LoginTokenGenerator};
 use sea_orm::Database;
@@ -47,6 +48,9 @@ async fn main() -> anyhow::Result<()> {
             &settings.secret_key,
             db.clone(),
         )),
+        email_attachment_ctx: Arc::new(EmailAttachmentContext::create(
+            settings.assets_root.clone(),
+        )?),
     };
 
     cli::run_command(settings, state).await

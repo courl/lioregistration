@@ -64,6 +64,20 @@ fn emails() -> Router<AppState> {
         .route("/{id}", put(emails::update_template))
         .route("/{id}/preview", post(emails::preview_template))
         .route("/{id}/send", post(emails::send_email))
+        .route("/{id}/attachment", post(emails::add_attachment))
+        .route("/{id}/attachment", get(emails::get_attachments))
+        .route(
+            "/{id}/attachment/{attachment_id}",
+            get(emails::get_attachment),
+        )
+        .route(
+            "/{id}/attachment/{attachment_id}",
+            patch(emails::update_attachment),
+        )
+        .route(
+            "/{id}/attachment/{attachment_id}",
+            delete(emails::delete_attachment),
+        )
 }
 
 fn rounds() -> Router<AppState> {
