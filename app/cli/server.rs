@@ -5,6 +5,7 @@ use crate::{jobs, routes};
 use axum::http::{HeaderValue, Method, header};
 use std::net::SocketAddr;
 use std::time::Duration;
+use tower::util::option_layer;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
@@ -54,7 +55,6 @@ fn cors_layer(origins: &[String]) -> anyhow::Result<Option<CorsLayer>> {
                 Method::PUT,
                 Method::PATCH,
                 Method::DELETE,
-                Method::OPTIONS,
             ])
             .allow_headers([header::CONTENT_TYPE, header::ACCEPT])
             .allow_credentials(true),
@@ -70,24 +70,24 @@ pub async fn run_server(state: AppState, settings: &Settings) -> anyhow::Result<
         }
     }
     let cors = cors_layer(&settings.cors_origins)?;
-
-    let mut app = routes::build(state.clone());
     if let Some(dir) = &settings.frontend_dir {
         if !dir.join("index.html").is_file() {
             anyhow::bail!("frontend_dir {} has no index.html", dir.display());
         }
         tracing::info!("Serving frontend from {}", dir.display());
-        app = routes::with_frontend(app, dir);
-    }
-    app = app.layer(TraceLayer::new_for_http());
-    if let Some(cors) = cors {
-        app = app.layer(cors);
     }
 
     spawn_worker(&state, settings);
     spawn_rate_limit_cleanup(&state);
 
-    let app = app.into_make_service_with_connect_info::<SocketAddr>();
+    let api = routes::build(state);
+    let app = match &settings.frontend_dir {
+        Some(dir) => routes::with_frontend(api, dir),
+        None => api,
+    }
+    .layer(TraceLayer::new_for_http())
+    .layer(option_layer(cors))
+    .into_make_service_with_connect_info::<SocketAddr>();
 
     let addr: SocketAddr = format!("{}:{}", settings.host, settings.port).parse()?;
     tracing::info!("Listening on {addr}");

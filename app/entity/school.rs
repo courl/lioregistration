@@ -2,6 +2,7 @@
 #![allow(clippy::derive_partial_eq_without_eq)]
 
 use sea_orm::ActiveValue;
+use unicode_normalization::UnicodeNormalization;
 use sea_orm::entity::prelude::*;
 
 #[sea_orm::model]
@@ -37,10 +38,15 @@ impl ActiveModel {
     }
 }
 
-/// Display form of a school name: trimmed, inner whitespace collapsed to single spaces.
+/// Display form of a school name: Unicode NFC (so a precomposed "é" and "e" + combining accent
+/// compare equal), trimmed, inner whitespace collapsed to single spaces.
 #[must_use]
 pub fn normalize_name(name: &str) -> String {
-    name.split_whitespace().collect::<Vec<_>>().join(" ")
+    name.nfc()
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Identity of a school name: two names with the same key are the same school
@@ -59,5 +65,8 @@ mod tests {
         assert_eq!(normalize_name("  Lycée   A \t"), "Lycée A");
         assert_eq!(name_key(" LYCÉE  a"), name_key("Lycée A"));
         assert_ne!(name_key("Lycée A"), name_key("Lycée B"));
+        // precomposed U+00E9 vs "e" + combining acute U+0301
+        assert_eq!(name_key("Lyc\u{e9}e A"), name_key("Lyce\u{301}e A"));
+        assert_eq!(normalize_name("Lyce\u{301}e A"), "Lyc\u{e9}e A");
     }
 }

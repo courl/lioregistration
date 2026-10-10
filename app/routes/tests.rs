@@ -5,13 +5,14 @@ use crate::entity::round;
 use crate::entity::round_participation::ParticipationState;
 use crate::routes;
 use crate::utils::test_utils::tests::{
-    TestApp, create_participation, create_registration, create_school, create_student, date,
-    setup_test,
+    TempDir, TestApp, create_participation, create_registration, create_school, create_student,
+    date, setup_test,
 };
 use axum::Router;
+use axum::body::Bytes;
 use axum::body::{Body, to_bytes};
 use axum::extract::ConnectInfo;
-use axum::http::{Method, Request, StatusCode, header};
+use axum::http::{HeaderMap, Method, Request, StatusCode, header};
 use sea_orm::EntityTrait;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
@@ -22,15 +23,35 @@ struct Client {
     cookie: Option<String>,
 }
 
+/// Runs one request through `router`, with the `ConnectInfo` the rate limiter needs.
+async fn call(router: &Router, mut request: Request<Body>) -> (StatusCode, HeaderMap, Bytes) {
+    request
+        .extensions_mut()
+        .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 1))));
+    let response = router.clone().oneshot(request).await.unwrap();
+    let (parts, body) = response.into_parts();
+    let bytes = to_bytes(body, usize::MAX).await.unwrap();
+    (parts.status, parts.headers, bytes)
+}
+
 impl Client {
     fn new(app: &TestApp) -> Self {
+        Self::with_router(routes::build(app.state.clone()))
+    }
+
+    fn with_router(router: Router) -> Self {
         Self {
-            router: routes::build(app.state.clone()),
+            router,
             cookie: None,
         }
     }
 
-    async fn send(&self, method: Method, uri: &str, body: Option<Value>) -> (StatusCode, Value) {
+    async fn send_raw(
+        &self,
+        method: Method,
+        uri: &str,
+        body: Option<Value>,
+    ) -> (StatusCode, Bytes) {
         let mut request = Request::builder()
             .method(method)
             .uri(uri)
@@ -38,23 +59,29 @@ impl Client {
         if let Some(cookie) = &self.cookie {
             request = request.header(header::COOKIE, cookie);
         }
-        let mut request = request
+        let request = request
             .body(body.map_or_else(Body::empty, |b| Body::from(b.to_string())))
             .unwrap();
-        request
-            .extensions_mut()
-            .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 1))));
-        let response = self.router.clone().oneshot(request).await.unwrap();
-        let status = response.status();
-        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let (status, _, bytes) = call(&self.router, request).await;
+        (status, bytes)
+    }
+
+    async fn send(&self, method: Method, uri: &str, body: Option<Value>) -> (StatusCode, Value) {
+        let (status, bytes) = self.send_raw(method, uri, body).await;
         (
             status,
             serde_json::from_slice(&bytes).unwrap_or(Value::Null),
         )
     }
 
-    async fn login(mut self, email: &str, password: &str) -> Self {
-        let mut request = Request::builder()
+    async fn get_text(&self, uri: &str) -> (StatusCode, String) {
+        let (status, bytes) = self.send_raw(Method::GET, uri, None).await;
+        (status, String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    /// Logs in and returns the full `Set-Cookie` header, attributes included.
+    async fn login_set_cookie(&self, email: &str, password: &str) -> String {
+        let request = Request::builder()
             .method(Method::POST)
             .uri("/api/admin/login")
             .header(header::CONTENT_TYPE, "application/json")
@@ -62,13 +89,14 @@ impl Client {
                 json!({ "email": email, "password": password }).to_string(),
             ))
             .unwrap();
-        request
-            .extensions_mut()
-            .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 1))));
-        let response = self.router.clone().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let cookie = response.headers()[header::SET_COOKIE].to_str().unwrap();
-        self.cookie = Some(cookie.split(';').next().unwrap().to_owned());
+        let (status, headers, _) = call(&self.router, request).await;
+        assert_eq!(status, StatusCode::OK);
+        headers[header::SET_COOKIE].to_str().unwrap().to_owned()
+    }
+
+    async fn login(mut self, email: &str, password: &str) -> Self {
+        let set_cookie = self.login_set_cookie(email, password).await;
+        self.cookie = Some(set_cookie.split(';').next().unwrap().to_owned());
         self
     }
 }
@@ -247,43 +275,52 @@ async fn round_lifecycle_over_http() {
 #[tokio::test]
 async fn frontend_fallback_serves_spa_but_not_for_api() {
     let app = setup_test().await;
-    let dir = std::env::temp_dir().join(format!("lio-spa-test-{}", std::process::id()));
+    let tmp = TempDir::new("lio-spa-test");
+    let dir = &tmp.0;
     std::fs::create_dir_all(dir.join("assets")).unwrap();
     std::fs::write(dir.join("index.html"), "<html>spa</html>").unwrap();
     std::fs::write(dir.join("assets/app.js"), "console.log(1)").unwrap();
-    let router = routes::with_frontend(routes::build(app.state.clone()), &dir);
+    let client = Client::with_router(routes::with_frontend(routes::build(app.state.clone()), dir));
 
-    let get = |uri: &str| {
-        let mut request = Request::builder().uri(uri).body(Body::empty()).unwrap();
-        request
-            .extensions_mut()
-            .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 1))));
-        let router = router.clone();
-        async move {
-            let response = router.oneshot(request).await.unwrap();
-            let status = response.status();
-            let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-            (status, String::from_utf8_lossy(&bytes).into_owned())
-        }
-    };
-
-    assert_eq!(get("/").await, (StatusCode::OK, "<html>spa</html>".into()));
+    let spa = (StatusCode::OK, "<html>spa</html>".to_owned());
+    assert_eq!(client.get_text("/").await, spa);
     // client-side route survives a reload
+    assert_eq!(client.get_text("/admin/rounds/3").await, spa);
     assert_eq!(
-        get("/admin/rounds/3").await,
-        (StatusCode::OK, "<html>spa</html>".into())
-    );
-    assert_eq!(
-        get("/assets/app.js").await,
-        (StatusCode::OK, "console.log(1)".into())
+        client.get_text("/assets/app.js").await,
+        (StatusCode::OK, "console.log(1)".to_owned())
     );
     // the API keeps working and unknown API paths stay a JSON 404
-    let (status, body) = get("/api/edition").await;
+    let (status, body) = client.get_text("/api/edition").await;
     assert_eq!(status, StatusCode::OK);
     assert!(!body.contains("spa"), "{body}");
-    let (status, body) = get("/api/nope").await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    assert!(!body.contains("spa"), "{body}");
+    for uri in ["/api", "/api/", "/api/nope", "/api/admin/nope"] {
+        let (status, body) = client.get_text(uri).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+        assert!(!body.contains("spa"), "{uri}: {body}");
+    }
+}
 
-    std::fs::remove_dir_all(dir).unwrap();
+#[tokio::test]
+async fn login_cookie_samesite_follows_frontend_mode() {
+    async fn set_cookie(cross_site: bool) -> String {
+        let mut app = setup_test().await.with_admin("admin@lio.lu", "test").await;
+        app.state.cross_site_frontend = cross_site;
+        Client::new(&app)
+            .login_set_cookie("admin@lio.lu", "test")
+            .await
+    }
+
+    let same_site = set_cookie(false).await;
+    assert!(same_site.contains("SameSite=Lax"), "{same_site}");
+    assert!(!same_site.contains("Partitioned"), "{same_site}");
+    let cross_site = set_cookie(true).await;
+    assert!(cross_site.contains("SameSite=None"), "{cross_site}");
+    assert!(cross_site.contains("Partitioned"), "{cross_site}");
+    for cookie in [same_site, cross_site] {
+        assert!(
+            cookie.contains("HttpOnly") && cookie.contains("Secure"),
+            "{cookie}"
+        );
+    }
 }

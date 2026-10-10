@@ -48,6 +48,7 @@ async fn main() -> anyhow::Result<()> {
             Duration::from_secs(settings.rate_limit.strict_window_secs),
         )),
         trust_proxy: settings.rate_limit.trust_proxy,
+        cross_site_frontend: !settings.cors_origins.is_empty(),
         token_generator: Arc::new(LoginTokenGenerator::from_secret(
             &settings.secret_key,
             db.clone(),

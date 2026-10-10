@@ -3071,6 +3071,7 @@ dependencies = [
  "typst",
  "typst-assets",
  "typst-pdf",
+ "unicode-normalization",
 ]
 
 [[package]]

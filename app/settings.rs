@@ -99,7 +99,8 @@ pub struct Settings {
     #[serde(default)]
     pub frontend_dir: Option<PathBuf>,
     /// Extra browser origins allowed to call the API with credentials. Only needed when the
-    /// frontend is hosted elsewhere; empty disables CORS.
+    /// frontend is hosted elsewhere; empty disables CORS. Non-empty also switches the auth
+    /// cookie from `SameSite=Lax` to `None` + partitioned.
     #[serde(default)]
     pub cors_origins: Vec<String>,
 }

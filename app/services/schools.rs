@@ -1,6 +1,7 @@
 use crate::entity::{registration, school};
 use crate::error::{AppError, AppResult};
-use sea_orm::{ActiveModelTrait, TransactionTrait};
+use crate::utils::search::rank_by_similarity;
+use sea_orm::TransactionTrait;
 use sea_orm::entity::prelude::*;
 
 pub async fn list_schools(db: &impl ConnectionTrait) -> AppResult<Vec<school::Model>> {
@@ -11,14 +12,14 @@ pub async fn list_schools(db: &impl ConnectionTrait) -> AppResult<Vec<school::Mo
 /// none does. Compared in Rust (the table is small) because SQLite's `LOWER` is ASCII-only.
 pub async fn find_or_create(name: &str, db: &impl ConnectionTrait) -> AppResult<school::Model> {
     let key = school::name_key(name);
-    if let Some(school) = list_schools(db)
+    match list_schools(db)
         .await?
         .into_iter()
         .find(|school| school.key() == key)
     {
-        return Ok(school);
+        Some(school) => Ok(school),
+        None => Ok(school::ActiveModel::create(name).insert(db).await?),
     }
-    Ok(school::ActiveModel::create(name).insert(db).await?)
 }
 
 pub async fn find_schools(query: &str, db: &impl ConnectionTrait) -> AppResult<Vec<school::Model>> {
@@ -26,22 +27,9 @@ pub async fn find_schools(query: &str, db: &impl ConnectionTrait) -> AppResult<V
     if query.chars().count() < 2 {
         return list_schools(db).await;
     }
-    let mut schools = list_schools(db)
-        .await?
-        .into_iter()
-        .filter_map(|school| {
-            let similarity = strsim::jaro_winkler(&query, &school.key());
-            if similarity > 0.5 {
-                Some((similarity, school))
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    // Most similar first.
-    schools.sort_by(|(sim1, _), (sim2, _)| sim2.total_cmp(sim1));
-
-    Ok(schools.into_iter().map(|(_, school)| school).collect())
+    Ok(rank_by_similarity(list_schools(db).await?, |school| {
+        strsim::jaro_winkler(&query, &school.key())
+    }))
 }
 
 /// Merge `other` into `into`: re-point every registration from `other` onto `into`, then
@@ -72,7 +60,33 @@ pub async fn merge(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::test_utils::tests::{create_school, setup_test};
+    use crate::utils::test_utils::tests::{
+        create_edition, create_registration, create_school, date, setup_test,
+    };
+
+    #[tokio::test]
+    async fn merge_reparents_registrations_and_deletes_source() {
+        let app = setup_test().await;
+        let db = &app.state.db;
+        let edition = create_edition(db, 2026, true, date(1), date(28)).await;
+        let keep = create_school(db, "Lycée A").await;
+        let drop = create_school(db, "Lycée B").await;
+        let reg = create_registration(db, &edition, &drop, None).await;
+
+        merge(&keep, &drop, db).await.unwrap();
+
+        let schools = list_schools(db).await.unwrap();
+        assert_eq!(
+            schools.iter().map(|s| s.id).collect::<Vec<_>>(),
+            vec![keep.id]
+        );
+        let reg = registration::Entity::find_by_id(reg.id)
+            .one(db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(reg.school_id, keep.id);
+    }
 
     #[tokio::test]
     async fn find_or_create_ignores_case_and_whitespace() {

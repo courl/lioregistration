@@ -12,6 +12,9 @@ pub struct AppState {
     /// Applied to sensitive endpoints via the `StrictRateLimit` extractor.
     pub strict_rate_limiter: Arc<RateLimiter>,
     pub trust_proxy: bool,
+    /// The frontend runs on another site (`cors_origins` set), so the auth cookie must be
+    /// `SameSite=None` + partitioned instead of `Lax`.
+    pub cross_site_frontend: bool,
     pub token_generator: Arc<LoginTokenGenerator>,
     pub email_attachment_ctx: Arc<EmailAttachmentContext>,
 }
