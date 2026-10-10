@@ -30,6 +30,12 @@ export default defineConfig({
       },
     }),
   ],
+  server: {
+    // Same origin as the SPA, so the SameSite=Lax auth cookie is sent in dev too.
+    proxy: {
+      "/api": "http://127.0.0.1:3001",
+    },
+  },
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("src", import.meta.url)),

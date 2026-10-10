@@ -36,6 +36,31 @@ fn spawn_rate_limit_cleanup(state: &AppState) {
     });
 }
 
+/// CORS is only needed when the frontend is hosted on another origin than this binary.
+fn cors_layer(origins: &[String]) -> anyhow::Result<Option<CorsLayer>> {
+    if origins.is_empty() {
+        return Ok(None);
+    }
+    let origins = origins
+        .iter()
+        .map(|origin| origin.parse())
+        .collect::<Result<Vec<HeaderValue>, _>>()?;
+    Ok(Some(
+        CorsLayer::new()
+            .allow_origin(origins)
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::PATCH,
+                Method::DELETE,
+                Method::OPTIONS,
+            ])
+            .allow_headers([header::CONTENT_TYPE, header::ACCEPT])
+            .allow_credentials(true),
+    ))
+}
+
 pub async fn run_server(state: AppState, settings: &Settings) -> anyhow::Result<()> {
     if settings.secret_key == DEV_SECRET_KEY {
         if cfg!(debug_assertions) {
@@ -44,33 +69,25 @@ pub async fn run_server(state: AppState, settings: &Settings) -> anyhow::Result<
             anyhow::bail!("secret_key is the development default; set LIO__SECRET_KEY");
         }
     }
-    let origins = settings
-        .cors_origins
-        .iter()
-        .map(|origin| origin.parse())
-        .collect::<Result<Vec<HeaderValue>, _>>()?;
+    let cors = cors_layer(&settings.cors_origins)?;
+
+    let mut app = routes::build(state.clone());
+    if let Some(dir) = &settings.frontend_dir {
+        if !dir.join("index.html").is_file() {
+            anyhow::bail!("frontend_dir {} has no index.html", dir.display());
+        }
+        tracing::info!("Serving frontend from {}", dir.display());
+        app = routes::with_frontend(app, dir);
+    }
+    app = app.layer(TraceLayer::new_for_http());
+    if let Some(cors) = cors {
+        app = app.layer(cors);
+    }
 
     spawn_worker(&state, settings);
     spawn_rate_limit_cleanup(&state);
 
-    let cors = CorsLayer::new()
-        .allow_origin(origins)
-        .allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::PUT, // todo check which methods are used
-            Method::PATCH,
-            Method::DELETE,
-            Method::OPTIONS,
-        ])
-        .allow_headers([header::CONTENT_TYPE, header::ACCEPT])
-        .allow_credentials(true);
-    // fixme: what protocol headers
-
-    let app = routes::build(state)
-        .layer(TraceLayer::new_for_http())
-        .layer(cors)
-        .into_make_service_with_connect_info::<SocketAddr>();
+    let app = app.into_make_service_with_connect_info::<SocketAddr>();
 
     let addr: SocketAddr = format!("{}:{}", settings.host, settings.port).parse()?;
     tracing::info!("Listening on {addr}");

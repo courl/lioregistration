@@ -4,7 +4,6 @@ use crate::error::{AppError, AppResult};
 use sea_orm::QueryFilter;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait};
 use serde::Serialize;
-use std::cmp::Ordering;
 use std::collections::HashMap;
 
 #[derive(Serialize)]
@@ -110,17 +109,13 @@ pub async fn find_students(
             }
         })
         .collect::<Vec<_>>();
-    // todo: sort by ascending? and remove rev?
-    students.sort_by(|(sim1, _), (sim2, _)| {
-        sim1.partial_cmp(sim2).unwrap_or(Ordering::Less) // todo: here just random ordering::less, is there a better choice?
-    });
+    // Most similar first.
+    students.sort_by(|(sim1, _), (sim2, _)| sim2.total_cmp(sim1));
 
-    Ok(students.into_iter().rev().map(|(_, data)| data).collect())
+    Ok(students.into_iter().map(|(_, data)| data).collect())
 }
 
-/*
- * Returns student_id -> registration
- */
+/// Returns student_id -> registration.
 pub async fn load_registrations(
     edition_id: i32,
     students: Vec<&student::Model>,

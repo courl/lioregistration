@@ -18,12 +18,6 @@ pub const DEV_SECRET_KEY: &str = "2026-06-05-dev-secret-key-change-in-production
 fn default_secret_key() -> String {
     DEV_SECRET_KEY.into()
 }
-fn default_cors_origins() -> Vec<String> {
-    vec![
-        "http://localhost:5173".into(),
-        "http://127.0.0.1:5173".into(),
-    ]
-}
 fn default_assets_root() -> PathBuf {
     std::env::current_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
@@ -100,8 +94,13 @@ pub struct Settings {
     pub assets_root: PathBuf,
     #[serde(default)]
     pub rate_limit: RateLimitSettings,
-    /// Browser origins allowed to call the API with credentials (the frontend's URL).
-    #[serde(default = "default_cors_origins")]
+    /// Directory of the compiled SPA (`frontend_lio/dist`). When set, every non-API path is
+    /// served from it, making frontend and API same-origin. Unset: API only.
+    #[serde(default)]
+    pub frontend_dir: Option<PathBuf>,
+    /// Extra browser origins allowed to call the API with credentials. Only needed when the
+    /// frontend is hosted elsewhere; empty disables CORS.
+    #[serde(default)]
     pub cors_origins: Vec<String>,
 }
 

@@ -52,10 +52,11 @@ pub async fn login(
     let cookie = Cookie::build(("access_token", token))
         .path("/")
         .http_only(true)
-        .same_site(SameSite::None) // todo: fixme
+        // The SPA is served by this binary (same origin), so Lax is enough and blocks the
+        // cookie on cross-site subrequests.
+        .same_site(SameSite::Lax)
         .max_age(TOKEN_VALIDITY)
         .secure(true)
-        .partitioned(true)
         .build();
 
     Ok((jar.add(cookie), Json(user.into())))

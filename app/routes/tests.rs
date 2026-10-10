@@ -243,3 +243,47 @@ async fn round_lifecycle_over_http() {
         .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn frontend_fallback_serves_spa_but_not_for_api() {
+    let app = setup_test().await;
+    let dir = std::env::temp_dir().join(format!("lio-spa-test-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("assets")).unwrap();
+    std::fs::write(dir.join("index.html"), "<html>spa</html>").unwrap();
+    std::fs::write(dir.join("assets/app.js"), "console.log(1)").unwrap();
+    let router = routes::with_frontend(routes::build(app.state.clone()), &dir);
+
+    let get = |uri: &str| {
+        let mut request = Request::builder().uri(uri).body(Body::empty()).unwrap();
+        request
+            .extensions_mut()
+            .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 1))));
+        let router = router.clone();
+        async move {
+            let response = router.oneshot(request).await.unwrap();
+            let status = response.status();
+            let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            (status, String::from_utf8_lossy(&bytes).into_owned())
+        }
+    };
+
+    assert_eq!(get("/").await, (StatusCode::OK, "<html>spa</html>".into()));
+    // client-side route survives a reload
+    assert_eq!(
+        get("/admin/rounds/3").await,
+        (StatusCode::OK, "<html>spa</html>".into())
+    );
+    assert_eq!(
+        get("/assets/app.js").await,
+        (StatusCode::OK, "console.log(1)".into())
+    );
+    // the API keeps working and unknown API paths stay a JSON 404
+    let (status, body) = get("/api/edition").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!body.contains("spa"), "{body}");
+    let (status, body) = get("/api/nope").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!body.contains("spa"), "{body}");
+
+    std::fs::remove_dir_all(dir).unwrap();
+}

@@ -4,6 +4,7 @@ use crate::entity::{
     task_score,
 };
 use crate::error::{AppError, AppResult};
+use crate::services::schools;
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveValue, DatabaseTransaction, IntoActiveModel, TransactionTrait};
 
@@ -40,17 +41,7 @@ pub async fn register_student(
                 ));
             }
 
-            let school = match school::Entity::find_by_name(&new.school_name)
-                .one(txn)
-                .await?
-            {
-                Some(school) => school,
-                None => {
-                    school::ActiveModel::create(&new.school_name)
-                        .insert(txn)
-                        .await?
-                }
-            };
+            let school = schools::find_or_create(&new.school_name, txn).await?;
 
             let registration = new
                 .into_active_model(edition.id, &school)
