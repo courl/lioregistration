@@ -43,6 +43,16 @@ pub async fn get_first_round(
         })
 }
 
+/// Refuses a change to a round (or its tasks, participations) outside the active edition.
+pub async fn ensure_round_editable(round_id: i32, db: &impl ConnectionTrait) -> AppResult<()> {
+    let round = round::Entity::find_by_id(round_id)
+        .one(db)
+        .await?
+        .ok_or(AppError::NotFound("Round does not exist".into()))?;
+    super::editions::get_editable_edition(round.edition_id, db).await?;
+    Ok(())
+}
+
 /// Sets a participation's state and/or task scores atomically. See [`update_participation_in`].
 pub async fn update_participation(
     participation: round_participation::Model,

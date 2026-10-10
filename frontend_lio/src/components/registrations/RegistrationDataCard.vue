@@ -3,7 +3,7 @@ import { computed } from "vue"
 
 import type { RegistrationDetails } from "@/types/registration.ts"
 
-import { useAuth } from "@/composables/api.ts"
+import { useCanEdit } from "@/composables/use-can-edit.ts"
 
 const props = defineProps<{
   registration: RegistrationDetails
@@ -12,7 +12,7 @@ const emit = defineEmits<{
   assignCredentials: []
   unassignCredentials: []
 }>()
-const auth = useAuth()
+const canEdit = useCanEdit()
 const genderIcon = computed(() => {
   switch (props.registration.gender) {
     case "female": {
@@ -137,7 +137,7 @@ const genderIcon = computed(() => {
               </div>
             </div>
             <UButton
-              v-if="auth.isAdmin"
+              v-if="canEdit"
               size="xs"
               icon="i-lucide-user-key"
               variant="ghost"
@@ -155,7 +155,7 @@ const genderIcon = computed(() => {
             description="No credentials have been assigned to this registration. This can happen if the pool was empty."
             orientation="horizontal"
             :actions="
-              auth.isAdmin
+              canEdit
                 ? [
                     {
                       icon: 'i-lucide-user-key',

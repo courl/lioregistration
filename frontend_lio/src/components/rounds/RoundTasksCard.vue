@@ -6,7 +6,7 @@ import { computed } from "vue"
 import type { TaskData } from "@/components/rounds/modals/RoundTaskModal.schema.ts"
 import type { Task } from "@/types/round.ts"
 
-import { useAuth } from "@/composables/api.ts"
+import { useCanEdit } from "@/composables/use-can-edit.ts"
 import { useConfirmDialog } from "@/composables/use-confirm-dialog.ts"
 import { useRoundTaskModal } from "@/composables/use-round-task-modal.ts"
 
@@ -17,7 +17,7 @@ const emit = defineEmits<{
   deleteTask: [task: Task]
 }>()
 
-const auth = useAuth()
+const canEdit = useCanEdit()
 const taskDialog = useRoundTaskModal()
 const confirm = useConfirmDialog()
 
@@ -34,7 +34,7 @@ const columns = computed<TableColumn<Task>[]>(() => [
     header: "Max Points",
     accessorKey: "max_points",
   },
-  ...(auth.isAdmin ? [{ id: "actions" }] : []),
+  ...(canEdit.value ? [{ id: "actions" }] : []),
 ])
 
 async function deleteTask(task: Task) {
@@ -67,11 +67,7 @@ async function newTask() {
     <template #header>
       <div class="flex items-center justify-between">
         <span class="font-bold">Tasks</span>
-        <UButton
-          v-if="auth.isAdmin"
-          size="xs"
-          icon="i-lucide-plus"
-          @click="newTask"
+        <UButton v-if="canEdit" size="xs" icon="i-lucide-plus" @click="newTask"
           >New task</UButton
         >
       </div>

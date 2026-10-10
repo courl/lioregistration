@@ -1,12 +1,14 @@
 //! Router-level smoke tests: real routing, extractors, auth cookie and status mapping.
 
 use crate::entity::admin_user::UserRole;
+use crate::entity::email_template::TemplateType;
 use crate::entity::round;
 use crate::entity::round_participation::ParticipationState;
 use crate::routes;
 use crate::utils::test_utils::tests::{
-    TempDir, TestApp, create_participation, create_registration, create_school, create_student,
-    date, setup_test,
+    TempDir, TestApp, create_credential, create_edition, create_email_template,
+    create_participation, create_registration, create_round, create_school, create_student,
+    create_task, date, setup_test,
 };
 use axum::Router;
 use axum::body::Bytes;
@@ -162,6 +164,14 @@ async fn round_lifecycle_over_http() {
         .await;
     assert_eq!(status, StatusCode::OK);
     let edition_id = edition["id"].as_i64().unwrap();
+    let (status, _) = admin
+        .send(
+            Method::PUT,
+            &format!("/api/admin/editions/{edition_id}/activate"),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
 
     // Regression: creating a round (no tasks yet) used to answer 404.
     let (status, round) = admin
@@ -270,6 +280,148 @@ async fn round_lifecycle_over_http() {
         .send(Method::DELETE, "/api/admin/credentials/9999", None)
         .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn inactive_edition_is_read_only() {
+    let app = setup_test().await.with_admin("admin@lio.lu", "pw").await;
+    let db = &app.state.db;
+    let edition = create_edition(db, 2025, false, date(1), date(2)).await;
+    let round = create_round(db, edition.id, "Round 1", date(3), date(4)).await;
+    let task = create_task(db, round.id, "A", 1, 10).await;
+    let school = create_school(db, "Lycée A").await;
+    let student = create_student(db, "Ada", "Lovelace", date(2)).await;
+    let registration = create_registration(db, &edition, &school, Some(student.id)).await;
+    create_participation(db, &round, &student, ParticipationState::Accepted).await;
+    let credential = create_credential(db, "u1", "p", &edition).await;
+    let template = create_email_template(db, TemplateType::Round).await;
+    let admin = Client::new(&app).login("admin@lio.lu", "pw").await;
+
+    let (e, r, t, reg, s, c) = (
+        edition.id,
+        round.id,
+        task.id,
+        registration.id,
+        student.id,
+        credential.id,
+    );
+    let mutations = [
+        (
+            Method::POST,
+            format!("/api/admin/editions/{e}/rounds"),
+            Some(json!({ "name": "R2", "starts_at": "2026-03-05", "ends_at": "2026-03-06" })),
+        ),
+        (
+            Method::POST,
+            format!("/api/admin/editions/{e}/credentials"),
+            Some(json!([{ "username": "u2", "password": "p" }])),
+        ),
+        (
+            Method::PATCH,
+            format!("/api/admin/rounds/{r}"),
+            Some(json!({ "name": "Renamed" })),
+        ),
+        (Method::DELETE, format!("/api/admin/rounds/{r}"), None),
+        (
+            Method::PATCH,
+            format!("/api/admin/rounds/{r}/participations/{s}"),
+            Some(json!({ "points": [[t, 5.0]] })),
+        ),
+        (
+            Method::POST,
+            format!("/api/admin/rounds/{r}/scores"),
+            Some(json!([])),
+        ),
+        (
+            Method::POST,
+            format!("/api/admin/rounds/{r}/add"),
+            Some(json!([s])),
+        ),
+        (
+            Method::POST,
+            format!("/api/admin/rounds/{r}/tasks"),
+            Some(json!({ "name": "B", "ordinal": 2, "max_points": 10 })),
+        ),
+        (
+            Method::PATCH,
+            format!("/api/admin/tasks/{t}"),
+            Some(json!({ "name": "A2" })),
+        ),
+        (Method::DELETE, format!("/api/admin/tasks/{t}"), None),
+        (
+            Method::POST,
+            format!("/api/admin/credentials/{c}/unassign"),
+            None,
+        ),
+        (Method::DELETE, format!("/api/admin/credentials/{c}"), None),
+        (
+            Method::POST,
+            format!("/api/admin/credentials/assign/{reg}"),
+            None,
+        ),
+        (
+            Method::POST,
+            format!("/api/admin/registrations/{reg}/link"),
+            None,
+        ),
+        (
+            Method::POST,
+            format!("/api/admin/registrations/{reg}/link/{s}"),
+            None,
+        ),
+        (
+            Method::DELETE,
+            format!("/api/admin/registrations/{reg}/link"),
+            None,
+        ),
+        (
+            Method::DELETE,
+            format!("/api/admin/registrations/{reg}/refuse"),
+            None,
+        ),
+        (
+            Method::POST,
+            format!("/api/admin/emails/{}/send", template.id),
+            Some(json!({ "round_id": r, "headline": "h", "body": "b" })),
+        ),
+    ];
+    for (method, uri, body) in mutations {
+        let (status, response) = admin.send(method.clone(), &uri, body).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{method} {uri}: {response}");
+        assert!(
+            response["error"].as_str().unwrap().contains("read-only"),
+            "{method} {uri}: {response}"
+        );
+    }
+
+    // Reads stay available.
+    for uri in [
+        format!("/api/admin/editions/{e}/rounds"),
+        format!("/api/admin/rounds/{r}"),
+        format!("/api/admin/registrations/{reg}"),
+        format!("/api/admin/editions/{e}/credentials"),
+    ] {
+        let (status, _) = admin.send(Method::GET, &uri, None).await;
+        assert_eq!(status, StatusCode::OK, "{uri}");
+    }
+
+    // Activating the edition makes it editable again.
+    let (status, _) = admin
+        .send(
+            Method::PUT,
+            &format!("/api/admin/editions/{e}/activate"),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = admin
+        .send(
+            Method::PATCH,
+            &format!("/api/admin/rounds/{r}"),
+            Some(json!({ "name": "Renamed" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
 }
 
 #[tokio::test]

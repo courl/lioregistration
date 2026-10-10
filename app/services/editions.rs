@@ -27,6 +27,13 @@ pub async fn get_edition(id: i32, db: &impl ConnectionTrait) -> AppResult<editio
         .ok_or(AppError::NotFound("Edition does not exist".into()))
 }
 
+/// Loads an edition for a mutation, refusing it unless it is the active one.
+pub async fn get_editable_edition(id: i32, db: &impl ConnectionTrait) -> AppResult<edition::Model> {
+    let edition = get_edition(id, db).await?;
+    edition.ensure_editable()?;
+    Ok(edition)
+}
+
 pub async fn active_edition(db: &impl ConnectionTrait) -> AppResult<edition::Model> {
     edition::Entity::find()
         .filter(edition::Column::Active.eq(true))

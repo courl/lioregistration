@@ -237,8 +237,8 @@ pub async fn create_round(
     Json(request): Json<CreateRoundRequest>,
 ) -> AppResult<Json<Round>> {
     auth.verify(vec![UserRole::Admin])?;
+    let edition = services::editions::get_editable_edition(edition_id, &state.db).await?;
     ensure_date_range(request.starts_at, request.ends_at, "Round")?;
-    let edition = services::editions::get_edition(edition_id, &state.db).await?;
     let round =
         round::ActiveModel::create(&edition, request.name, request.starts_at, request.ends_at)
             .insert(&state.db)
@@ -258,8 +258,8 @@ pub async fn update_round(
         .one(&state.db)
         .await?
         .ok_or(AppError::NotFound("Round does not exist".into()))?;
+    let edition = services::editions::get_editable_edition(round.edition_id, &state.db).await?;
     let statistics = services::rounds::statistics_for_round(&round, &state.db).await?;
-    let edition = services::editions::get_edition(round.edition_id, &state.db).await?;
 
     let mut round = round.into_active_model();
 
@@ -295,6 +295,7 @@ pub async fn delete_round(
         .one(&state.db)
         .await?
         .ok_or(AppError::NotFound("Round does not exist".into()))?;
+    services::editions::get_editable_edition(round.edition_id, &state.db).await?;
     services::rounds::delete_round(round, &state.db).await
 }
 
@@ -334,6 +335,7 @@ pub async fn update_participation_details(
     Json(request): Json<UpdateParticipantRequest>,
 ) -> AppResult<()> {
     auth.verify(vec![UserRole::Admin])?;
+    services::rounds::ensure_round_editable(round_id, &state.db).await?;
     let participation = round_participation::Entity::find_by_round_student((round_id, student_id))
         .one(&state.db)
         .await?
@@ -362,6 +364,7 @@ pub async fn bulk_update_scores(
         .one(&state.db)
         .await?
         .ok_or(AppError::NotFound("Round does not exist".into()))?;
+    services::editions::get_editable_edition(round.edition_id, &state.db).await?;
 
     let unmatched = services::rounds::import_scores(
         &round,
@@ -386,6 +389,7 @@ pub async fn add_students(
         .one(&state.db)
         .await?
         .ok_or(AppError::NotFound("Round does not exist".into()))?;
+    services::editions::get_editable_edition(round.edition_id, &state.db).await?;
 
     services::rounds::move_students(round, student_ids, &state.db).await?;
     Ok(())
@@ -402,6 +406,7 @@ pub async fn add_task(
         .one(&state.db)
         .await?
         .ok_or(AppError::NotFound("Round does not exist".into()))?;
+    services::editions::get_editable_edition(round.edition_id, &state.db).await?;
 
     let task = task::ActiveModel::create(round, request.name, request.ordinal, request.max_points)
         .insert(&state.db)
@@ -421,6 +426,7 @@ pub async fn update_task(
         .one(&state.db)
         .await?
         .ok_or(AppError::NotFound("Task does not exist".into()))?;
+    services::rounds::ensure_round_editable(current.round_id, &state.db).await?;
     let mut task = current.clone().into_active_model();
 
     if let Some(name) = request.name {
@@ -449,6 +455,7 @@ pub async fn delete_task(
         .one(&state.db)
         .await?
         .ok_or(AppError::NotFound("Task does not exist".into()))?;
+    services::rounds::ensure_round_editable(task.round_id, &state.db).await?;
     services::rounds::delete_task(task, &state.db).await
 }
 

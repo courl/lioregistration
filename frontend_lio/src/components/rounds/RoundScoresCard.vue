@@ -7,7 +7,7 @@ import type { ParticipationData } from "@/components/rounds/modals/RoundParticip
 import type { Participant, RoundDetails, TaskId } from "@/types/round.ts"
 
 import ParticipationBadge from "@/components/rounds/ParticipationBadge.vue"
-import { useAuth } from "@/composables/api.ts"
+import { useCanEdit } from "@/composables/use-can-edit.ts"
 import { useRoundBulkScoreModal } from "@/composables/use-round-bulk-score-modal.ts"
 import { useRoundParticipationModal } from "@/composables/use-round-participation-modal.ts"
 
@@ -18,7 +18,7 @@ const emit = defineEmits<{
     { credentials_username: string; task_scores: [TaskId, number][] }[],
   ]
 }>()
-const auth = useAuth()
+const canEdit = useCanEdit()
 const participationEditor = useRoundParticipationModal()
 const bulkScoreEditor = useRoundBulkScoreModal()
 
@@ -37,7 +37,7 @@ const columns: TableColumn<Participant>[] = [
 ]
 
 async function editParticipation(participant: Participant) {
-  if (!auth.isAdmin) return
+  if (!canEdit.value) return
   const result = await participationEditor({
     participant,
     tasks: props.round.tasks,
@@ -60,7 +60,7 @@ async function editScores() {
       <div class="flex items-center justify-between">
         <span class="font-bold">Scores</span>
         <UButton
-          v-if="auth.isAdmin"
+          v-if="canEdit"
           size="xs"
           icon="i-lucide-upload"
           @click="editScores"

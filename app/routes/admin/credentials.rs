@@ -1,7 +1,8 @@
 use crate::entity::admin_user::UserRole;
-use crate::entity::{credentials, edition, registration};
+use crate::entity::{credentials, registration};
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::Auth;
+use crate::services;
 use crate::state::AppState;
 use axum::Json;
 use axum::extract::{Path, State};
@@ -72,10 +73,7 @@ pub async fn create_credentials(
     Json(credentials): Json<Vec<CreateCredentials>>,
 ) -> AppResult<Json<Vec<Credentials>>> {
     auth.verify(vec![UserRole::Admin])?;
-    let edition = edition::Entity::find_by_id(edition_id)
-        .one(&state.db)
-        .await?
-        .ok_or(AppError::NotFound("Edition does not exist".into()))?;
+    let edition = services::editions::get_editable_edition(edition_id, &state.db).await?;
 
     let mut seen = std::collections::HashSet::new();
     if let Some(duplicate) = credentials
@@ -114,11 +112,12 @@ pub async fn unassign_credentials(
     Path(credentials_id): Path<i32>,
 ) -> AppResult<()> {
     auth.verify(vec![UserRole::Admin])?;
-    let mut credentials = credentials::Entity::find_by_id(credentials_id)
+    let credentials = credentials::Entity::find_by_id(credentials_id)
         .one(&state.db)
         .await?
-        .ok_or(AppError::NotFound("Credentials do not exist".into()))?
-        .into_active_model();
+        .ok_or(AppError::NotFound("Credentials do not exist".into()))?;
+    services::editions::get_editable_edition(credentials.edition_id, &state.db).await?;
+    let mut credentials = credentials.into_active_model();
 
     credentials.registration_id = ActiveValue::Set(None);
     credentials.save(&state.db).await?;
@@ -131,6 +130,11 @@ pub async fn delete_credentials(
     Path(credentials_id): Path<i32>,
 ) -> AppResult<()> {
     auth.verify(vec![UserRole::Admin])?;
+    let credentials = credentials::Entity::find_by_id(credentials_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Credentials do not exist".into()))?;
+    services::editions::get_editable_edition(credentials.edition_id, &state.db).await?;
     let deleted = credentials::Entity::delete_by_id(credentials_id)
         .exec(&state.db)
         .await?;
@@ -155,6 +159,7 @@ pub async fn assign_free_credentials(
                     .one(txn)
                     .await?
                     .ok_or(AppError::NotFound("Registration does not exist".into()))?;
+                services::editions::get_editable_edition(registration.edition_id, txn).await?;
                 if credentials.is_some() {
                     return Err(AppError::Conflict(
                         "Registration already has credentials".into(),

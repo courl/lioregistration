@@ -4,6 +4,7 @@ import { ref } from "vue"
 import type { RegistrationId, ReviewStatus } from "@/types/registration.ts"
 import type { Student, StudentId } from "@/types/student.ts"
 
+import { provideCanEdit } from "@/composables/use-can-edit.ts"
 import { useRegistration } from "@/composables/use-registration.ts"
 import { useRouteId } from "@/composables/use-route-id.ts"
 
@@ -18,6 +19,7 @@ const {
   refuse,
   loadCandidate,
 } = useRegistration(id)
+provideCanEdit(() => registration.value?.edition)
 
 const match = ref<[number, Student] | undefined>()
 

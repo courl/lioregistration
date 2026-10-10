@@ -229,6 +229,7 @@ pub async fn validate_and_create_new_student(
     let edition = edition.ok_or(AppError::Internal(anyhow::anyhow!(
         "Database corruption: No edition for registration"
     )))?;
+    edition.ensure_editable()?;
 
     services::registration::link_registration(
         &edition,
@@ -260,6 +261,7 @@ pub async fn link_to_student(
     let edition = edition.ok_or(AppError::Internal(anyhow::anyhow!(
         "Database corruption: No edition for registration"
     )))?;
+    edition.ensure_editable()?;
 
     services::registration::link_registration(
         &edition,
@@ -285,6 +287,7 @@ pub async fn unlink_from_student(
     let edition = edition.ok_or(AppError::Internal(anyhow::anyhow!(
         "Database corruption: No edition for registration"
     )))?;
+    edition.ensure_editable()?;
 
     services::registration::link_registration(
         &edition,
@@ -306,6 +309,7 @@ pub async fn refuse(
         .one(&state.db)
         .await?
         .ok_or(AppError::NotFound("Registration does not exist".into()))?;
+    services::editions::get_editable_edition(registration.edition_id, &state.db).await?;
     let first_review = registration.reviewed_at.is_none();
     let mut registration = registration.into_active_model();
 
