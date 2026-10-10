@@ -31,7 +31,10 @@ pub mod tests {
 
     impl TempDir {
         pub fn new(prefix: &str) -> Self {
-            Self(std::env::temp_dir().join(format!("{prefix}-{}", std::process::id())))
+            // Tests run concurrently in one process, so the pid alone isn't unique
+            static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Self(std::env::temp_dir().join(format!("{prefix}-{}-{n}", std::process::id())))
         }
     }
 

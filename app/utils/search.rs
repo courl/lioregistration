@@ -1,3 +1,17 @@
+use unicode_normalization::UnicodeNormalization;
+
+/// Comparison form for fuzzy search and name identity: Unicode NFC, whitespace collapsed,
+/// lowercased (Unicode-aware, unlike SQLite's `LOWER`).
+#[must_use]
+pub fn search_key(text: &str) -> String {
+    text.nfc()
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
 /// Items scoring at most this are dropped from fuzzy search results.
 const MIN_SIMILARITY: f64 = 0.5;
 
@@ -16,6 +30,12 @@ pub fn rank_by_similarity<T>(items: Vec<T>, score: impl Fn(&T) -> f64) -> Vec<T>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn search_key_ignores_case_and_whitespace() {
+        assert_eq!(search_key("  LOVE\tLace "), "love lace");
+        assert_eq!(search_key("Lyce\u{301}e"), search_key("lycée"));
+    }
 
     #[test]
     fn filters_and_sorts_descending() {

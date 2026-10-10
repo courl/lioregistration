@@ -26,9 +26,15 @@ async function processLinkAndValidate(student: Student | undefined) {
   match.value = undefined
 }
 
+let candidateRequest = 0
 async function selectStudent(studentId: StudentId | undefined) {
-  match.value =
-    studentId === undefined ? undefined : await loadCandidate(studentId)
+  const current = ++candidateRequest
+  // Hide the previous candidate at once, so it can't be linked while loading
+  match.value = undefined
+  if (studentId === undefined) return
+  const candidate = await loadCandidate(studentId)
+  // Ignore responses overtaken by a newer id
+  if (current === candidateRequest) match.value = candidate
 }
 
 const reviewStatusColor = (

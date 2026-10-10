@@ -5,18 +5,23 @@ export interface NewCredentials {
   password: string
 }
 
-/** Parses one `username,password` pair per line (`,`, `;`, tab or spaces). */
+/**
+ * Parses one `username,password` pair per line. Only the first `,`, `;`, tab or space
+ * separates, so passwords may contain any of them.
+ */
 export function parseCredentials(text: string): NewCredentials[] {
   return text
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [username = "", password = "", ...rest] = line.split(/[,;\t ]+/)
-      return {
-        username,
-        password: rest.length > 0 ? "" : password,
-      }
+      const index = line.search(/[,;\s]/)
+      return index === -1
+        ? { username: line, password: "" }
+        : {
+            username: line.slice(0, index),
+            password: line.slice(index + 1).trim(),
+          }
     })
 }
 

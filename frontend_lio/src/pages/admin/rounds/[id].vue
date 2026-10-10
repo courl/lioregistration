@@ -80,8 +80,12 @@ async function processSendEmail(
   headline: string,
   body: string,
 ) {
-  // Failures are toasted by the API client
-  await sendEmail(email, headline, body)
+  try {
+    await sendEmail(email, headline, body)
+  } catch {
+    // Already toasted by the API client
+    return
+  }
   toast.add({ title: "Emails queued for sending", color: "success" })
 }
 </script>

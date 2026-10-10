@@ -18,9 +18,38 @@ const data = ref<string>("")
 const step = ref<"data" | "validate">("data")
 const parsed = ref<ParsedData>()
 
-const result = computed<RoundBulkScoreResult>(() => {
+/** A score cell, accepting a decimal comma ("7,5"). NaN when it doesn't fully parse. */
+function parseScore(value: string): number {
+  return Number(value.trim().replace(",", "."))
+}
+
+/** The scores of one row's task columns, reporting cells that aren't numbers. */
+function rowScores(
+  row: Record<string, string>,
+  nameToTaskId: Record<string, TaskId>,
+  onInvalid: (key: string, value: string) => void,
+): [TaskId, number][] {
+  const task_scores: [TaskId, number][] = []
+  for (const [key, value] of Object.entries(row)) {
+    // Empty cells are left unscored
+    if (!Object.hasOwn(nameToTaskId, key) || value.trim() === "") continue
+    const score = parseScore(value)
+    if (Number.isFinite(score)) {
+      task_scores.push([nameToTaskId[key], score])
+    } else {
+      onInvalid(key, value)
+    }
+  }
+  return task_scores
+}
+
+const evaluation = computed<{
+  result: RoundBulkScoreResult
+  invalid: string[]
+}>(() => {
+  const invalid: string[] = []
   if (!parsed.value) {
-    return
+    return { result: undefined, invalid }
   }
 
   const nameToTaskId = Object.fromEntries(
@@ -31,26 +60,28 @@ const result = computed<RoundBulkScoreResult>(() => {
   const userColumn = parsed.value.headers.find((h) => h.isUserColumn)
 
   if (!userColumn) {
-    return
+    return { result: undefined, invalid }
   }
 
   const result: RoundScoreData[] = []
   for (const row of parsed.value.rows) {
     const username = row[userColumn.name]
     if (!username) continue
-    const task_scores: [TaskId, number][] = []
-    for (const [key, value] of Object.entries(row)) {
-      const score = Number.parseFloat(value)
-      // Empty or non-numeric cells are left unscored
-      if (Object.hasOwn(nameToTaskId, key) && Number.isFinite(score)) {
-        task_scores.push([nameToTaskId[key], score])
-      }
-    }
-    result.push({ credentials_username: username, task_scores })
+    result.push({
+      credentials_username: username,
+      task_scores: rowScores(row, nameToTaskId, (key, value) =>
+        invalid.push(`${username} / ${key}: '${value}'`),
+      ),
+    })
   }
 
-  return result.length > 0 ? result : undefined
+  // Never import a partially understood file
+  return {
+    result: invalid.length === 0 && result.length > 0 ? result : undefined,
+    invalid,
+  }
 })
+const result = computed(() => evaluation.value.result)
 
 function confirmOrValidate() {
   if (step.value === "validate") {
@@ -157,6 +188,16 @@ function removeHeader(header: ParsedHeader) {
               />
             </div>
           </div>
+
+          <UAlert
+            v-if="evaluation.invalid.length > 0"
+            class="mt-3"
+            color="error"
+            variant="subtle"
+            icon="i-lucide-triangle-alert"
+            title="Some scores are not numbers"
+            :description="evaluation.invalid.join(', ')"
+          />
 
           <UTable
             class="mt-3"

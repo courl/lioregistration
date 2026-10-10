@@ -46,6 +46,15 @@ const createAPI = (toastOn404: boolean) => {
     credentials: "include",
     // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     parseResponse: (txt) => (txt ? JSON.parse(txt, reviveDates) : txt),
+    // No HTTP response at all (offline, DNS, TLS, proxy failure)
+    onRequestError() {
+      useToast().add({
+        title: "Cannot reach the server.",
+        description: "Check your connection and try again.",
+        icon: "i-lucide-wifi-off",
+        color: "error",
+      })
+    },
     onResponseError({ request, response }) {
       if (response.status === 401) {
         // Login and session rehydration handle their own 401s.

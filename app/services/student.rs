@@ -1,7 +1,7 @@
 use crate::entity::round_participation::Award;
 use crate::entity::{registration, round, round_participation, student};
 use crate::error::{AppError, AppResult};
-use crate::utils::search::rank_by_similarity;
+use crate::utils::search::{rank_by_similarity, search_key};
 use sea_orm::QueryFilter;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait};
 use serde::Serialize;
@@ -93,14 +93,16 @@ pub async fn find_students(
     query: &str,
     db: &impl ConnectionTrait,
 ) -> AppResult<Vec<(student::Model, Vec<AwardInfo>)>> {
-    if query.len() < 2 {
+    // Compare normalized forms, so "LOVELACE" finds "Lovelace"
+    let query = search_key(query);
+    if query.chars().count() < 2 {
         return list_students(db).await;
     }
     Ok(rank_by_similarity(
         list_students(db).await?,
         |(student, _)| {
-            (strsim::jaro_winkler(query, &student.given_name)
-                + strsim::jaro_winkler(query, &student.family_name))
+            (strsim::jaro_winkler(&query, &search_key(&student.given_name))
+                + strsim::jaro_winkler(&query, &search_key(&student.family_name)))
                 / 2.
         },
     ))
