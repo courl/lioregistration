@@ -19,6 +19,8 @@ pub enum AppError {
     Unauthorized,
     #[error("{0}")]
     Gone(String),
+    #[error("too many requests")]
+    TooManyRequests,
     #[error("{0}")]
     Internal(#[from] anyhow::Error),
 }
@@ -49,6 +51,7 @@ impl IntoResponse for AppError {
             Self::BadRequest(m) => (StatusCode::BAD_REQUEST, m.clone()),
             Self::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".into()),
             Self::Gone(m) => (StatusCode::GONE, m.clone()),
+            Self::TooManyRequests => (StatusCode::TOO_MANY_REQUESTS, "Too many requests".into()),
             Self::Database(e) => {
                 tracing::error!("Database error: {e}");
                 (StatusCode::INTERNAL_SERVER_ERROR, "Database error".into())
@@ -106,6 +109,14 @@ mod tests {
     #[test]
     fn gone_maps_to_410() {
         assert_eq!(status(AppError::Gone("x".into())), StatusCode::GONE);
+    }
+
+    #[test]
+    fn too_many_requests_maps_to_429() {
+        assert_eq!(
+            status(AppError::TooManyRequests),
+            StatusCode::TOO_MANY_REQUESTS
+        );
     }
 
     #[test]

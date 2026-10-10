@@ -1,3 +1,4 @@
+pub mod client_ip;
 pub mod email_template;
 pub mod rate_limiter;
 #[cfg(test)]

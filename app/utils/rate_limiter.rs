@@ -29,6 +29,16 @@ impl RateLimiter {
         entry.push(now);
         true
     }
+
+    /// Drops buckets whose requests have all left the window, so IPs that stopped
+    /// sending requests don't accumulate forever.
+    pub fn cleanup(&self) {
+        let now = Instant::now();
+        self.buckets.retain(|_, timestamps| {
+            timestamps.retain(|&t| now.duration_since(t) < self.window);
+            !timestamps.is_empty()
+        });
+    }
 }
 
 #[cfg(test)]
@@ -79,6 +89,19 @@ mod tests {
             rl.check(ip),
             "expired entry should be evicted, allowing next request"
         );
+    }
+
+    #[test]
+    fn cleanup_removes_expired_buckets_only() {
+        let expired = RateLimiter::new(5, Duration::from_nanos(0));
+        assert!(expired.check(ip("10.0.0.5")));
+        expired.cleanup();
+        assert!(expired.buckets.is_empty());
+
+        let live = RateLimiter::new(5, Duration::from_secs(60));
+        assert!(live.check(ip("10.0.0.6")));
+        live.cleanup();
+        assert_eq!(live.buckets.len(), 1);
     }
 
     #[test]

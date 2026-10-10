@@ -2,6 +2,7 @@ use crate::entity::admin_user;
 use crate::entity::admin_user::UserRole;
 use crate::error::AppResult;
 use crate::middleware::auth::Auth;
+use crate::middleware::rate_limit::StrictRateLimit;
 use crate::services;
 use crate::state::AppState;
 use crate::utils::token_generator::TOKEN_VALIDITY;
@@ -40,6 +41,7 @@ impl From<admin_user::Model> for UserResponse {
 }
 
 pub async fn login(
+    _rl: StrictRateLimit,
     State(state): State<AppState>,
     jar: CookieJar,
     Json(body): Json<LoginRequest>,

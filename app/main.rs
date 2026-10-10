@@ -39,7 +39,15 @@ async fn main() -> anyhow::Result<()> {
 
     let state = AppState {
         db: db.clone(),
-        rate_limiter: Arc::new(RateLimiter::new(5, Duration::from_hours(4))),
+        rate_limiter: Arc::new(RateLimiter::new(
+            settings.rate_limit.global_max_requests,
+            Duration::from_secs(settings.rate_limit.global_window_secs),
+        )),
+        strict_rate_limiter: Arc::new(RateLimiter::new(
+            settings.rate_limit.strict_max_requests,
+            Duration::from_secs(settings.rate_limit.strict_window_secs),
+        )),
+        trust_proxy: settings.rate_limit.trust_proxy,
         token_generator: Arc::new(LoginTokenGenerator::from_secret(
             &settings.secret_key,
             db.clone(),

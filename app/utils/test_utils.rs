@@ -7,13 +7,14 @@ pub mod tests {
         admin_user, credentials, edition, registration, round, round_participation, school,
         student, task,
     };
-    use crate::settings::SmtpSettings;
+    use crate::services::email_attachment::EmailAttachmentContext;
     use crate::state::AppState;
     use crate::utils::rate_limiter::RateLimiter;
     use crate::utils::token_generator::LoginTokenGenerator;
     use chrono::NaiveDate;
     use sea_orm::ActiveValue::Set;
     use sea_orm::{ActiveModelTrait, Database, DatabaseConnection};
+    use std::path::PathBuf;
     use std::sync::Arc;
     use std::time::Duration;
     use tracing_subscriber::layer::SubscriberExt;
@@ -41,12 +42,13 @@ pub mod tests {
         TestApp {
             state: AppState {
                 db: db.clone(),
-                smtp: Arc::new(SmtpSettings {
-                    ..Default::default()
-                }),
-                admin_email: None,
-                rate_limiter: Arc::new(RateLimiter::new(5, Duration::from_secs(3600))),
+                rate_limiter: Arc::new(RateLimiter::new(300, Duration::from_secs(60))),
+                strict_rate_limiter: Arc::new(RateLimiter::new(5, Duration::from_secs(3600))),
+                trust_proxy: false,
                 token_generator: Arc::new(LoginTokenGenerator::from_secret("secret", db.clone())),
+                email_attachment_ctx: Arc::new(
+                    EmailAttachmentContext::create(PathBuf::from("assets")).unwrap(),
+                ),
             },
         }
     }

@@ -4,6 +4,7 @@ use crate::state::AppState;
 use crate::{jobs, routes};
 use axum::http::{Method, header};
 use std::net::SocketAddr;
+use std::time::Duration;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
@@ -19,8 +20,25 @@ fn spawn_worker(state: &AppState, settings: &Settings) {
     });
 }
 
+fn spawn_rate_limit_cleanup(state: &AppState) {
+    let limiters = [
+        state.rate_limiter.clone(),
+        state.strict_rate_limiter.clone(),
+    ];
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_mins(1));
+        loop {
+            interval.tick().await;
+            for limiter in &limiters {
+                limiter.cleanup();
+            }
+        }
+    });
+}
+
 pub async fn run_server(state: AppState, settings: &Settings) -> anyhow::Result<()> {
     spawn_worker(&state, settings);
+    spawn_rate_limit_cleanup(&state);
 
     let cors = CorsLayer::new()
         // fixme: set proper origins

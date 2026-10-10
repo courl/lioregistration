@@ -22,6 +22,49 @@ fn default_assets_root() -> PathBuf {
         .join("assets")
 }
 
+const fn default_global_max_requests() -> usize {
+    300
+}
+const fn default_global_window_secs() -> u64 {
+    60
+}
+const fn default_strict_max_requests() -> usize {
+    5
+}
+const fn default_strict_window_secs() -> u64 {
+    4 * 60 * 60
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct RateLimitSettings {
+    /// Limit applied to every request, per client IP.
+    #[serde(default = "default_global_max_requests")]
+    pub global_max_requests: usize,
+    #[serde(default = "default_global_window_secs")]
+    pub global_window_secs: u64,
+    /// Limit applied to sensitive endpoints (login, register), per client IP.
+    #[serde(default = "default_strict_max_requests")]
+    pub strict_max_requests: usize,
+    #[serde(default = "default_strict_window_secs")]
+    pub strict_window_secs: u64,
+    /// Take the client IP from `X-Forwarded-For`. Only enable behind a reverse proxy
+    /// that sets this header, otherwise clients can spoof their IP.
+    #[serde(default)]
+    pub trust_proxy: bool,
+}
+
+impl Default for RateLimitSettings {
+    fn default() -> Self {
+        Self {
+            global_max_requests: default_global_max_requests(),
+            global_window_secs: default_global_window_secs(),
+            strict_max_requests: default_strict_max_requests(),
+            strict_window_secs: default_strict_window_secs(),
+            trust_proxy: false,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct SmtpSettings {
     pub host: String,
@@ -47,6 +90,8 @@ pub struct Settings {
     pub admin_email: String,
     #[serde(default = "default_assets_root")]
     pub assets_root: PathBuf,
+    #[serde(default)]
+    pub rate_limit: RateLimitSettings,
 }
 
 impl Settings {
