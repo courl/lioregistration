@@ -27,15 +27,16 @@ impl ActiveModel {
     pub fn create(
         task: &super::task::Model,
         participation: &super::round_participation::Model,
+        points: f32,
     ) -> Self {
-        Self::create_from_ids(task.id, participation.id)
+        Self::create_from_ids(task.id, participation.id, points)
     }
-    pub fn create_from_ids(task_id: i32, participation_id: i32) -> Self {
+    pub fn create_from_ids(task_id: i32, participation_id: i32, points: f32) -> Self {
         Self {
             id: Default::default(),
             task_id: ActiveValue::Set(task_id),
             round_participation_id: ActiveValue::Set(participation_id),
-            points: Default::default(),
+            points: ActiveValue::Set(points),
         }
     }
 }

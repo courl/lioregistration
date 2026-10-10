@@ -4,6 +4,8 @@ use axum::Router;
 
 mod admin;
 mod public;
+#[cfg(test)]
+mod tests;
 
 pub fn build(state: AppState) -> Router {
     Router::new()

@@ -90,6 +90,11 @@ pub async fn create_edition(
     Json(body): Json<CreateRequest>,
 ) -> AppResult<Json<Edition>> {
     auth.verify(vec![UserRole::Admin])?;
+    crate::utils::validation::ensure_date_range(
+        body.registration_opens_at,
+        body.registration_closes_at,
+        "Registration period",
+    )?;
     let model = edition::ActiveModel::create(
         &body.name,
         body.year,

@@ -1,8 +1,6 @@
 use crate::entity::admin_user::UserRole;
 use crate::entity::round_participation::ParticipationState;
-use crate::entity::{
-    credentials, edition, registration, round, round_participation, student, task, task_score,
-};
+use crate::entity::{edition, round, round_participation, task, task_score};
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::Auth;
 use crate::routes::admin::edition::Edition;
@@ -11,11 +9,11 @@ use crate::services;
 use crate::services::rounds::Statistics;
 use crate::services::student::AwardInfo;
 use crate::state::AppState;
+use crate::utils::validation::ensure_date_range;
 use axum::Json;
 use axum::extract::{Path, State};
 use sea_orm::prelude::ChronoDate;
 use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait, IntoActiveModel, ModelTrait};
-use sea_orm::{QueryFilter, TransactionTrait};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -96,6 +94,12 @@ pub struct UpdateParticipantRequest {
 pub struct UpdateScoreRequest {
     credentials_username: String,
     task_scores: Vec<(i32, f32)>,
+}
+
+#[derive(Serialize)]
+pub struct ImportScoresResponse {
+    /// Usernames that matched no participant of the round; their rows were not imported.
+    pub unmatched: Vec<String>,
 }
 
 impl Task {
@@ -233,6 +237,7 @@ pub async fn create_round(
     Json(request): Json<CreateRoundRequest>,
 ) -> AppResult<Json<Round>> {
     auth.verify(vec![UserRole::Admin])?;
+    ensure_date_range(request.starts_at, request.ends_at, "Round")?;
     let edition = services::editions::get_edition(edition_id, &state.db).await?;
     let round =
         round::ActiveModel::create(&edition, request.name, request.starts_at, request.ends_at)
@@ -269,6 +274,13 @@ pub async fn update_round(
     if let Some(ends_at) = request.ends_at {
         round.ends_at = ActiveValue::Set(ends_at);
     }
+    if let (
+        ActiveValue::Set(starts_at) | ActiveValue::Unchanged(starts_at),
+        ActiveValue::Set(ends_at) | ActiveValue::Unchanged(ends_at),
+    ) = (&round.starts_at, &round.ends_at)
+    {
+        ensure_date_range(*starts_at, *ends_at, "Round")?;
+    }
     let round = round.update(&state.db).await?;
     Ok(Json(Round::create(round, statistics, &edition)))
 }
@@ -283,9 +295,7 @@ pub async fn delete_round(
         .one(&state.db)
         .await?
         .ok_or(AppError::NotFound("Round does not exist".into()))?;
-    round.into_active_model().delete(&state.db).await?;
-    // Todo: propagate delete through participations etc.? or block it?
-    Ok(())
+    services::rounds::delete_round(round, &state.db).await
 }
 
 pub async fn round(
@@ -320,15 +330,16 @@ pub async fn round(
 pub async fn update_participation_details(
     State(state): State<AppState>,
     auth: Auth,
-    Path(round_id): Path<i32>,
-    Path(student_id): Path<i32>,
+    Path((round_id, student_id)): Path<(i32, i32)>,
     Json(request): Json<UpdateParticipantRequest>,
 ) -> AppResult<()> {
     auth.verify(vec![UserRole::Admin])?;
     let participation = round_participation::Entity::find_by_round_student((round_id, student_id))
         .one(&state.db)
         .await?
-        .ok_or(AppError::NotFound("Round does not exist".into()))?;
+        .ok_or(AppError::NotFound(
+            "Student does not participate in this round".into(),
+        ))?;
 
     services::rounds::update_participation(
         participation,
@@ -345,88 +356,23 @@ pub async fn bulk_update_scores(
     auth: Auth,
     Path(round_id): Path<i32>,
     Json(request): Json<Vec<UpdateScoreRequest>>,
-) -> AppResult<()> {
+) -> AppResult<Json<ImportScoresResponse>> {
     auth.verify(vec![UserRole::Admin])?;
     let round = round::Entity::find_by_id(round_id)
         .one(&state.db)
         .await?
         .ok_or(AppError::NotFound("Round does not exist".into()))?;
 
-    if request.is_empty() {
-        return Ok(());
-    }
-
-    let usernames: Vec<String> = request
-        .iter()
-        .map(|r| r.credentials_username.clone())
-        .collect();
-
-    // 1. Batch-fetch credentials for all usernames in this edition
-    let credentials = credentials::Entity::find()
-        .filter(credentials::COLUMN.edition_id.eq(round.edition_id))
-        .filter(credentials::COLUMN.username.is_in(usernames))
-        .all(&state.db)
-        .await?;
-
-    let registration_ids: Vec<i32> = credentials
-        .iter()
-        .filter_map(|c| c.registration_id)
-        .collect();
-
-    // 2. Batch-fetch students for those registrations
-    let students: HashMap<i32, student::Model> = registration::Entity::find()
-        .filter(registration::COLUMN.id.is_in(registration_ids))
-        .find_also_related(student::Entity)
-        .all(&state.db)
-        .await?
-        .into_iter()
-        .filter_map(|(reg, student)| Some((reg.id, student?)))
-        .collect();
-
-    // registration_id -> student_id map, via credentials
-    let username_to_student_id: HashMap<String, i32> = credentials
-        .into_iter()
-        .filter_map(|c| {
-            let reg_id = c.registration_id?;
-            let student = students.get(&reg_id)?;
-            Some((c.username, student.id))
-        })
-        .collect();
-
-    let student_ids: Vec<i32> = username_to_student_id.values().copied().collect();
-
-    // 3. Batch-fetch participations for this round + these students
-    let participations: HashMap<i32, round_participation::Model> =
-        round_participation::Entity::find()
-            .filter(round_participation::COLUMN.round_id.eq(round.id))
-            .filter(round_participation::COLUMN.student_id.is_in(student_ids))
-            .all(&state.db)
-            .await?
+    let unmatched = services::rounds::import_scores(
+        &round,
+        request
             .into_iter()
-            .map(|p| (p.student_id, p))
-            .collect();
-
-    // 4. Build the full (participation, task_points) batch, skipping unmatched entries
-    let mut updates = Vec::new();
-    for score_update in request {
-        let Some(&student_id) = username_to_student_id.get(&score_update.credentials_username)
-        else {
-            continue;
-        };
-        let Some(participation) = participations.get(&student_id) else {
-            continue;
-        };
-        updates.push((participation.clone(), score_update.task_scores));
-    }
-
-    // 5. Run all updates inside one transaction
-    let txn = state.db.begin().await?;
-    for (participation, task_points) in updates {
-        services::rounds::update_participation(participation, None, task_points, &txn).await?;
-    }
-    txn.commit().await?;
-
-    Ok(())
+            .map(|row| (row.credentials_username, row.task_scores))
+            .collect(),
+        &state.db,
+    )
+    .await?;
+    Ok(Json(ImportScoresResponse { unmatched }))
 }
 
 pub async fn add_students(
@@ -471,11 +417,11 @@ pub async fn update_task(
     Json(request): Json<UpdateTaskRequest>,
 ) -> AppResult<Json<Task>> {
     auth.verify(vec![UserRole::Admin])?;
-    let mut task = task::Entity::find_by_id(task_id)
+    let current = task::Entity::find_by_id(task_id)
         .one(&state.db)
         .await?
-        .ok_or(AppError::NotFound("Task does not exist".into()))?
-        .into_active_model();
+        .ok_or(AppError::NotFound("Task does not exist".into()))?;
+    let mut task = current.clone().into_active_model();
 
     if let Some(name) = request.name {
         task.name = ActiveValue::Set(name);
@@ -486,6 +432,7 @@ pub async fn update_task(
     }
 
     if let Some(max_points) = request.max_points {
+        services::rounds::ensure_max_points_fit(&current, max_points, &state.db).await?;
         task.max_points = ActiveValue::Set(max_points);
     }
     let task = task.update(&state.db).await?;
@@ -502,10 +449,7 @@ pub async fn delete_task(
         .one(&state.db)
         .await?
         .ok_or(AppError::NotFound("Task does not exist".into()))?;
-
-    task.delete(&state.db).await?;
-    // todo: delete task scores?
-    Ok(())
+    services::rounds::delete_task(task, &state.db).await
 }
 
 pub async fn get_task_scores(

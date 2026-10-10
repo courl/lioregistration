@@ -75,7 +75,18 @@ pub async fn create_credentials(
     let edition = edition::Entity::find_by_id(edition_id)
         .one(&state.db)
         .await?
-        .ok_or(AppError::NotFound("Edition does not exists".into()))?;
+        .ok_or(AppError::NotFound("Edition does not exist".into()))?;
+
+    let mut seen = std::collections::HashSet::new();
+    if let Some(duplicate) = credentials
+        .iter()
+        .find(|c| !seen.insert(c.username.as_str()))
+    {
+        return Err(AppError::BadRequest(format!(
+            "Username '{}' appears more than once",
+            duplicate.username
+        )));
+    }
 
     let credentials = credentials
         .iter()
@@ -120,9 +131,12 @@ pub async fn delete_credentials(
     Path(credentials_id): Path<i32>,
 ) -> AppResult<()> {
     auth.verify(vec![UserRole::Admin])?;
-    credentials::Entity::delete_by_id(credentials_id)
+    let deleted = credentials::Entity::delete_by_id(credentials_id)
         .exec(&state.db)
         .await?;
+    if deleted.rows_affected == 0 {
+        return Err(AppError::NotFound("Credentials do not exist".into()));
+    }
     Ok(())
 }
 
@@ -132,20 +146,21 @@ pub async fn assign_free_credentials(
     Path(registration_id): Path<i32>,
 ) -> AppResult<()> {
     auth.verify(vec![UserRole::Admin])?;
-    let (registration, credentials) = registration::Entity::find_by_id(registration_id)
-        .find_also_related(credentials::Entity)
-        .one(&state.db)
-        .await?
-        .ok_or(AppError::NotFound("Registration does not exist".into()))?;
-
-    if credentials.is_some() {
-        return Err(AppError::BadRequest("Registration already assigned".into()));
-    }
-
     state
         .db
         .transaction::<_, _, AppError>(|txn| {
             Box::pin(async move {
+                let (registration, credentials) = registration::Entity::find_by_id(registration_id)
+                    .find_also_related(credentials::Entity)
+                    .one(txn)
+                    .await?
+                    .ok_or(AppError::NotFound("Registration does not exist".into()))?;
+                if credentials.is_some() {
+                    return Err(AppError::Conflict(
+                        "Registration already has credentials".into(),
+                    ));
+                }
+
                 let mut credentials = credentials::Entity::find_free(registration.edition_id)
                     .one(txn)
                     .await?

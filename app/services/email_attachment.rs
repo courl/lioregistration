@@ -97,8 +97,19 @@ impl World for EmailAttachmentWorld {
     fn font(&self, index: usize) -> Option<Font> {
         self.ctx.fonts.get(index).cloned()
     }
-    fn today(&self, _offset: Option<typst::foundations::Duration>) -> Option<Datetime> {
-        Datetime::from_ymd(2026, 8, 23)
+    fn today(&self, offset: Option<typst::foundations::Duration>) -> Option<Datetime> {
+        use chrono::Datelike;
+        let date = match offset {
+            Some(offset) => (chrono::Utc::now()
+                + chrono::Duration::seconds(offset.seconds().round() as i64))
+            .date_naive(),
+            None => chrono::Local::now().date_naive(),
+        };
+        Datetime::from_ymd(
+            date.year(),
+            date.month().try_into().ok()?,
+            date.day().try_into().ok()?,
+        )
     }
 }
 

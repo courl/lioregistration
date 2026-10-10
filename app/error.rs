@@ -8,7 +8,7 @@ use serde_json::json;
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error("database error: {0}")]
-    Database(#[from] sea_orm::DbErr),
+    Database(sea_orm::DbErr),
     #[error("{0}")]
     NotFound(String),
     #[error("{0}")]
@@ -23,6 +23,26 @@ pub enum AppError {
     TooManyRequests,
     #[error("{0}")]
     Internal(#[from] anyhow::Error),
+}
+
+/// Constraint violations are client errors (duplicate key, row still referenced), not
+/// server faults: surface them as 409 instead of an opaque 500.
+impl From<sea_orm::DbErr> for AppError {
+    fn from(e: sea_orm::DbErr) -> Self {
+        match e.sql_err() {
+            Some(sea_orm::SqlErr::UniqueConstraintViolation(detail)) => {
+                tracing::warn!("Unique constraint violated: {detail}");
+                AppError::Conflict("A record with these values already exists".into())
+            }
+            Some(sea_orm::SqlErr::ForeignKeyConstraintViolation(detail)) => {
+                tracing::warn!("Foreign key constraint violated: {detail}");
+                AppError::Conflict(
+                    "The record is referenced by, or references, other records".into(),
+                )
+            }
+            _ => AppError::Database(e),
+        }
+    }
 }
 
 impl From<sea_orm::TransactionError<sea_orm::DbErr>> for AppError {
@@ -109,6 +129,38 @@ mod tests {
     #[test]
     fn gone_maps_to_410() {
         assert_eq!(status(AppError::Gone("x".into())), StatusCode::GONE);
+    }
+
+    #[tokio::test]
+    async fn constraint_violations_map_to_409() {
+        use crate::entity::{school, task};
+        use crate::utils::test_utils::tests::{create_school, setup_test};
+        use sea_orm::{ActiveModelTrait, ActiveValue::Set};
+
+        let app = setup_test().await;
+        let db = &app.state.db;
+        create_school(db, "Lycée A").await;
+
+        let duplicate = school::ActiveModel::create("Lycée A")
+            .insert(db)
+            .await
+            .unwrap_err();
+        assert!(matches!(AppError::from(duplicate), AppError::Conflict(_)));
+
+        let dangling = task::ActiveModel {
+            round_id: Set(999),
+            name: Set("x".into()),
+            ordinal: Set(1),
+            max_points: Set(1),
+            ..Default::default()
+        }
+        .insert(db)
+        .await
+        .unwrap_err();
+        assert!(matches!(AppError::from(dangling), AppError::Conflict(_)));
+
+        let other = sea_orm::DbErr::Custom("boom".into());
+        assert!(matches!(AppError::from(other), AppError::Database(_)));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use crate::entity::email_template::TemplateType;
 use crate::entity::{
-    credentials, email_attachment_template, email_template, registration, round, school,
+    credentials, edition, email_attachment_template, email_template, registration, round, school,
 };
 use crate::error::{AppError, AppResult};
 use crate::jobs;
@@ -8,7 +8,7 @@ use crate::jobs::Job;
 use crate::jobs::send_email::SendEmailPayload;
 use crate::services::email_attachment::EmailAttachmentContext;
 use crate::utils::email_template::{
-    EmailTemplate, GlobalContext, InstanceContext, apply_global_ctx, apply_instance_ctx,
+    EmailTemplate, GlobalContext, InstanceContext, apply_global_ctx_typst, apply_instance_ctx_typst,
 };
 use base64::Engine;
 use chrono::Local;
@@ -38,8 +38,8 @@ async fn create_attachment_preview(
 ) -> Vec<AttachmentPreview> {
     let mut result = Vec::new();
     for attachment in attachments {
-        let content = apply_instance_ctx(
-            apply_global_ctx(attachment.template.as_str(), global_ctx).as_str(),
+        let content = apply_instance_ctx_typst(
+            apply_global_ctx_typst(attachment.template.as_str(), global_ctx).as_str(),
             instance_ctx,
         );
         let data =
@@ -103,18 +103,18 @@ async fn load_template(
 }
 
 pub async fn send_registration_email(
+    edition: &edition::Model,
     registration: &registration::Model,
     school: &school::Model,
     credentials: &credentials::Model,
     db: &impl ConnectionTrait,
 ) -> AppResult<()> {
-    let edition = super::editions::active_edition(db).await?;
     let first_round = super::rounds::get_first_round(edition.id, db).await?;
     let template = load_template(TemplateType::Registration, db).await?;
 
     let global_ctx = GlobalContext {
         headline: "Registration".into(),
-        edition: edition.name,
+        edition: edition.name.clone(),
         round: Some(first_round.name),
         round_starts_at: first_round.starts_at,
         round_ends_at: first_round.ends_at,

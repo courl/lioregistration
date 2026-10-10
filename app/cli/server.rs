@@ -1,8 +1,8 @@
 use crate::jobs::worker::WorkerSettings;
-use crate::settings::Settings;
+use crate::settings::{DEV_SECRET_KEY, Settings};
 use crate::state::AppState;
 use crate::{jobs, routes};
-use axum::http::{Method, header};
+use axum::http::{HeaderValue, Method, header};
 use std::net::SocketAddr;
 use std::time::Duration;
 use tower_http::cors::CorsLayer;
@@ -37,15 +37,24 @@ fn spawn_rate_limit_cleanup(state: &AppState) {
 }
 
 pub async fn run_server(state: AppState, settings: &Settings) -> anyhow::Result<()> {
+    if settings.secret_key == DEV_SECRET_KEY {
+        if cfg!(debug_assertions) {
+            tracing::warn!("Using the development secret_key; set LIO__SECRET_KEY in production");
+        } else {
+            anyhow::bail!("secret_key is the development default; set LIO__SECRET_KEY");
+        }
+    }
+    let origins = settings
+        .cors_origins
+        .iter()
+        .map(|origin| origin.parse())
+        .collect::<Result<Vec<HeaderValue>, _>>()?;
+
     spawn_worker(&state, settings);
     spawn_rate_limit_cleanup(&state);
 
     let cors = CorsLayer::new()
-        // fixme: set proper origins
-        .allow_origin([
-            "http://localhost:5173".parse()?,
-            "http://127.0.0.1:5173".parse()?,
-        ])
+        .allow_origin(origins)
         .allow_methods([
             Method::GET,
             Method::POST,

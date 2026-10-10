@@ -8,7 +8,7 @@ use crate::jobs::worker::{JobResult, WorkerSettings};
 use crate::services::email_attachment::{EmailAttachmentContext, compile_typst_to_pdf};
 use crate::settings::SmtpSettings;
 use crate::utils::email_template::{
-    EmailTemplate, GlobalContext, InstanceContext, apply_global_ctx, apply_instance_ctx,
+    EmailTemplate, GlobalContext, InstanceContext, apply_global_ctx_typst, apply_instance_ctx_typst,
 };
 use mail_send::mail_builder::MessageBuilder;
 use mail_send::{SmtpClient, SmtpClientBuilder};
@@ -93,7 +93,7 @@ impl SendEmailProcessor {
             .map(|attachment| {
                 (
                     attachment.name,
-                    apply_global_ctx(attachment.template.as_str(), &payload.global_context),
+                    apply_global_ctx_typst(attachment.template.as_str(), &payload.global_context),
                 )
             })
             .collect();
@@ -112,40 +112,7 @@ impl SendEmailProcessor {
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
-        let mut errors = Vec::new();
-        let mut partially_complete = false;
-        if let Some(instances) = payload.instances {
-            for (email, ctx) in instances {
-                let email_content = template.instantiate(&ctx);
-                let attachments = attachments
-                    .iter()
-                    .map(|(name, content)| {
-                        Ok((
-                            "application/pdf",
-                            name.as_str(),
-                            compile_typst_to_pdf(
-                                apply_instance_ctx(content.as_str(), &ctx).as_str(),
-                                &self.email_attachment_ctx,
-                            )?,
-                        ))
-                    })
-                    .collect::<AppResult<Vec<_>>>()?;
-                if let Err(error) = self
-                    .send_one_email(
-                        client,
-                        email_content,
-                        (ctx.given_name + " " + ctx.family_name.as_ref(), email),
-                        payload.global_context.headline.clone(),
-                        attachments,
-                    )
-                    .await
-                {
-                    errors.push(error);
-                } else {
-                    partially_complete = true;
-                }
-            }
-        } else {
+        let Some(instances) = payload.instances else {
             self.send_one_email(
                 client,
                 template.raw(),
@@ -154,15 +121,44 @@ impl SendEmailProcessor {
                 Vec::new(),
             )
             .await?;
+            return Ok(JobResult::Complete);
         };
-        if partially_complete {
-            Ok(JobResult::PartiallyComplete(errors))
-        } else if !errors.is_empty() {
-            // todo: we loose information here
-            Err(errors.swap_remove(0))
-        } else {
-            Ok(JobResult::Complete)
+
+        // Every recipient is attempted; one bad attachment or address doesn't stop the batch.
+        let mut errors = Vec::new();
+        let mut sent = 0usize;
+        for (email, ctx) in instances {
+            let rendered = attachments
+                .iter()
+                .map(|(name, content)| {
+                    compile_typst_to_pdf(
+                        apply_instance_ctx_typst(content.as_str(), &ctx).as_str(),
+                        &self.email_attachment_ctx,
+                    )
+                    .map(|pdf| ("application/pdf", name.as_str(), pdf))
+                })
+                .collect::<AppResult<Vec<_>>>();
+            let result = match rendered {
+                Ok(rendered) => {
+                    self.send_one_email(
+                        client,
+                        template.instantiate(&ctx),
+                        (ctx.given_name + " " + ctx.family_name.as_ref(), email),
+                        payload.global_context.headline.clone(),
+                        rendered,
+                    )
+                    .await
+                }
+                Err(e) => Err(AppError::Internal(anyhow::anyhow!(
+                    "Cannot render attachment for {email}: {e}"
+                ))),
+            };
+            match result {
+                Ok(()) => sent += 1,
+                Err(error) => errors.push(error),
+            }
         }
+        summarize(sent, errors)
     }
 
     async fn send_one_email<T>(
@@ -222,5 +218,40 @@ impl SendEmailProcessor {
             }
         };
         Ok(())
+    }
+}
+
+/// Collapses per-recipient outcomes into the job result: all sent → Complete, some sent →
+/// PartiallyComplete (errors logged by the worker), none sent → the first error.
+fn summarize(sent: usize, mut errors: Vec<AppError>) -> AppResult<JobResult> {
+    if errors.is_empty() {
+        Ok(JobResult::Complete)
+    } else if sent > 0 {
+        Ok(JobResult::PartiallyComplete(errors))
+    } else {
+        for error in errors.iter().skip(1) {
+            tracing::error!("Email job error: {error}");
+        }
+        Err(errors.swap_remove(0))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn err() -> AppError {
+        AppError::Internal(anyhow::anyhow!("boom"))
+    }
+
+    #[test]
+    fn summarize_outcomes() {
+        assert!(matches!(summarize(3, vec![]), Ok(JobResult::Complete)));
+        assert!(matches!(summarize(0, vec![]), Ok(JobResult::Complete)));
+        assert!(matches!(
+            summarize(2, vec![err()]),
+            Ok(JobResult::PartiallyComplete(e)) if e.len() == 1
+        ));
+        assert!(summarize(0, vec![err(), err()]).is_err());
     }
 }

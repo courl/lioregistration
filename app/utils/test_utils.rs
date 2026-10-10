@@ -1,11 +1,12 @@
 #[cfg(test)]
 pub mod tests {
     use crate::entity::admin_user::UserRole;
+    use crate::entity::email_template::TemplateType;
     use crate::entity::registration::{FirstContact, Gender, NewRegistration, ReviewStatus};
     use crate::entity::round_participation::ParticipationState;
     use crate::entity::{
-        admin_user, credentials, edition, registration, round, round_participation, school,
-        student, task,
+        admin_user, credentials, edition, email_template, registration, round, round_participation,
+        school, student, task, task_score,
     };
     use crate::services::email_attachment::EmailAttachmentContext;
     use crate::state::AppState;
@@ -202,6 +203,33 @@ pub mod tests {
             reg.review_status = Set(ReviewStatus::Validated);
         }
         reg.insert(db).await.unwrap()
+    }
+
+    pub async fn create_score(
+        db: &DatabaseConnection,
+        task: &task::Model,
+        participation: &round_participation::Model,
+        points: f32,
+    ) -> task_score::Model {
+        task_score::ActiveModel::create(task, participation, points)
+            .insert(db)
+            .await
+            .unwrap()
+    }
+
+    /// A minimal valid MJML template of the given type, so email enqueueing can succeed.
+    pub async fn create_email_template(
+        db: &DatabaseConnection,
+        template_type: TemplateType,
+    ) -> email_template::Model {
+        email_template::ActiveModel::create(
+            format!("{template_type:?}"),
+            "<mjml><mj-body><mj-section><mj-column><mj-text>{{!headline}} {{given_name}}</mj-text></mj-column></mj-section></mj-body></mjml>".into(),
+            template_type,
+        )
+        .insert(db)
+        .await
+        .unwrap()
     }
 
     #[must_use]

@@ -2,8 +2,8 @@
 #![allow(clippy::derive_partial_eq_without_eq)]
 
 use crate::entity::edition;
-use sea_orm::ActiveValue;
 use sea_orm::entity::prelude::*;
+use sea_orm::{ActiveValue, QueryOrder};
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -44,6 +44,9 @@ impl ActiveModel {
 
 impl Entity {
     pub fn find_by_edition(edition_id: i32) -> Select<Entity> {
-        Self::find().filter(COLUMN.edition_id.eq(edition_id))
+        Self::find()
+            .filter(COLUMN.edition_id.eq(edition_id))
+            .order_by_asc(COLUMN.starts_at)
+            .order_by_asc(COLUMN.id)
     }
 }

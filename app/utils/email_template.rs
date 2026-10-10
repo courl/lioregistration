@@ -66,7 +66,8 @@ fn generate_student_table(students: &Option<Vec<(String, f32)>>) -> String {
                   <td style=\"padding: 0 15px 0 0;\">{}</td>
                   <td style=\"padding: 0 0 0 15px;\">{:.2}</td>
                 </tr>",
-                    student.0, student.1
+                    html_escape(&student.0),
+                    student.1
                 )
                 .as_str(),
             );
@@ -105,7 +106,7 @@ impl EmailTemplate {
     }
 
     pub fn instantiate(&self, ctx: &InstanceContext) -> String {
-        apply_instance_ctx(self.html.as_str(), ctx)
+        apply_instance_ctx_html(self.html.as_str(), ctx)
     }
 
     pub fn raw(&self) -> String {
@@ -113,12 +114,18 @@ impl EmailTemplate {
     }
 }
 
-pub fn apply_global_ctx(string: &str, ctx: &GlobalContext) -> String {
-    let empty_string = String::new();
+fn apply_global_ctx_with(
+    string: &str,
+    ctx: &GlobalContext,
+    escape: impl Fn(&str) -> String,
+) -> String {
     string
-        .replace("{{!headline}}", &ctx.headline)
-        .replace("{{!edition}}", &ctx.edition)
-        .replace("{{!round}}", ctx.round.as_ref().unwrap_or(&empty_string))
+        .replace("{{!headline}}", &escape(&ctx.headline))
+        .replace("{{!edition}}", &escape(&ctx.edition))
+        .replace(
+            "{{!round}}",
+            &escape(ctx.round.as_deref().unwrap_or_default()),
+        )
         .replace(
             "{{!round_starts_at}}",
             ctx.round_starts_at.to_string().as_str(),
@@ -126,19 +133,161 @@ pub fn apply_global_ctx(string: &str, ctx: &GlobalContext) -> String {
         .replace("{{!round_ends_at}}", ctx.round_ends_at.to_string().as_str())
 }
 
-pub fn apply_instance_ctx(string: &str, ctx: &InstanceContext) -> String {
-    let empty_string = String::new();
+/// Fills global placeholders into an MJML email template, HTML-escaping the values.
+pub fn apply_global_ctx(string: &str, ctx: &GlobalContext) -> String {
+    apply_global_ctx_with(string, ctx, html_escape)
+}
+
+/// Fills global placeholders into Typst attachment source, Typst-escaping the values.
+pub fn apply_global_ctx_typst(string: &str, ctx: &GlobalContext) -> String {
+    apply_global_ctx_with(string, ctx, typst_escape)
+}
+
+/// Escapes text for HTML element content and attribute values.
+pub fn html_escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for c in value.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// Escapes text for Typst *markup* context: every character with markup or code meaning
+/// (`#` starts code, `$` math, `*`/`_` emphasis, `/` comments, ...) is backslash-escaped, so
+/// registrant-supplied values render literally and can never execute as Typst code.
+pub fn typst_escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for c in value.chars() {
+        if matches!(
+            c,
+            '\\' | '#'
+                | '$'
+                | '*'
+                | '_'
+                | '`'
+                | '<'
+                | '>'
+                | '@'
+                | '['
+                | ']'
+                | '='
+                | '-'
+                | '+'
+                | '/'
+                | '~'
+                | '"'
+                | '\''
+        ) {
+            out.push('\\');
+        }
+        if c == '\n' || c == '\r' {
+            out.push(' ');
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn apply_instance_ctx_with(
+    string: &str,
+    ctx: &InstanceContext,
+    escape: impl Fn(&str) -> String,
+) -> String {
     string
-        .replace("{{given_name}}", &ctx.given_name)
-        .replace("{{family_name}}", &ctx.family_name)
-        .replace("{{school}}", &ctx.school)
-        .replace("{{grade}}", &ctx.grade)
+        .replace("{{given_name}}", &escape(&ctx.given_name))
+        .replace("{{family_name}}", &escape(&ctx.family_name))
+        .replace("{{school}}", &escape(&ctx.school))
+        .replace("{{grade}}", &escape(&ctx.grade))
         .replace(
             "{{credentials_username}}",
-            ctx.credentials_username.as_ref().unwrap_or(&empty_string),
+            &escape(ctx.credentials_username.as_deref().unwrap_or_default()),
         )
         .replace(
             "{{credentials_password}}",
-            ctx.credentials_password.as_ref().unwrap_or(&empty_string),
+            &escape(ctx.credentials_password.as_deref().unwrap_or_default()),
         )
+}
+
+/// Fills per-recipient placeholders into rendered email HTML, HTML-escaping the values.
+pub fn apply_instance_ctx_html(string: &str, ctx: &InstanceContext) -> String {
+    apply_instance_ctx_with(string, ctx, html_escape)
+}
+
+/// Fills per-recipient placeholders into Typst attachment source, Typst-escaping the values.
+pub fn apply_instance_ctx_typst(string: &str, ctx: &InstanceContext) -> String {
+    apply_instance_ctx_with(string, ctx, typst_escape)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::services::email_attachment::{EmailAttachmentContext, compile_typst_to_pdf};
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    fn ctx(given_name: &str) -> InstanceContext {
+        InstanceContext {
+            given_name: given_name.into(),
+            family_name: "Lovelace".into(),
+            school: "Lycée A".into(),
+            grade: "12".into(),
+            credentials_username: Some("user01".into()),
+            credentials_password: None,
+        }
+    }
+
+    #[test]
+    fn html_values_are_escaped() {
+        let out = apply_instance_ctx_html(
+            "<p>{{given_name}} {{family_name}} {{credentials_password}}</p>",
+            &ctx("<img src=x onerror=\"alert('x')\">&"),
+        );
+        assert_eq!(
+            out,
+            "<p>&lt;img src=x onerror=&quot;alert(&#39;x&#39;)&quot;&gt;&amp; Lovelace </p>"
+        );
+    }
+
+    #[test]
+    fn student_table_names_are_escaped() {
+        let table = generate_student_table(&Some(vec![("<b>Eve</b>".into(), 1.0)]));
+        assert!(table.contains("&lt;b&gt;Eve&lt;/b&gt;"));
+        assert!(!table.contains("<b>Eve"));
+    }
+
+    #[test]
+    fn typst_values_render_literally() {
+        assert_eq!(typst_escape("#panic()"), "\\#panic()");
+        assert_eq!(typst_escape("a*b_c $x$"), "a\\*b\\_c \\$x\\$");
+        assert_eq!(typst_escape("Jean-Luc O'Neil"), "Jean\\-Luc O\\'Neil");
+        assert_eq!(typst_escape("line\nbreak"), "line break");
+    }
+
+    #[test]
+    fn typst_injection_does_not_execute() {
+        let ctx_ = Arc::new(EmailAttachmentContext::create(PathBuf::from("assets")).unwrap());
+        let template = "Hello {{given_name}} from {{school}}";
+        // Unescaped, this would abort compilation via `panic`; escaped it is just text.
+        let raw = template.replace("{{given_name}}", "#panic(\"pwned\")");
+        assert!(
+            compile_typst_to_pdf(&raw, &ctx_).is_err(),
+            "control: raw input executes"
+        );
+        for name in [
+            "#panic(\"pwned\")",
+            "#read(\"/etc/passwd\")",
+            "$ x $ // */ [ ]",
+        ] {
+            let source = apply_instance_ctx_typst(template, &ctx(name));
+            compile_typst_to_pdf(&source, &ctx_).unwrap_or_else(|e| panic!("{name}: {e}"));
+        }
+    }
 }

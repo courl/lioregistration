@@ -13,8 +13,16 @@ const fn default_port() -> u16 {
 fn default_database_url() -> String {
     "sqlite://./lio.db?mode=rwc".into()
 }
+pub const DEV_SECRET_KEY: &str = "2026-06-05-dev-secret-key-change-in-production";
+
 fn default_secret_key() -> String {
-    "2026-06-05-dev-secret-key-change-in-production".into()
+    DEV_SECRET_KEY.into()
+}
+fn default_cors_origins() -> Vec<String> {
+    vec![
+        "http://localhost:5173".into(),
+        "http://127.0.0.1:5173".into(),
+    ]
 }
 fn default_assets_root() -> PathBuf {
     std::env::current_dir()
@@ -92,6 +100,9 @@ pub struct Settings {
     pub assets_root: PathBuf,
     #[serde(default)]
     pub rate_limit: RateLimitSettings,
+    /// Browser origins allowed to call the API with credentials (the frontend's URL).
+    #[serde(default = "default_cors_origins")]
+    pub cors_origins: Vec<String>,
 }
 
 impl Settings {
