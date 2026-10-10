@@ -28,14 +28,15 @@ function getColor(
     case "error": {
       return "error"
     }
+    case null:
+    case undefined: {
+      return "neutral"
+    }
     case "registration": {
       return "success"
     }
     case "round": {
       return "primary"
-    }
-    case undefined: {
-      return "neutral"
     }
   }
 }
@@ -61,7 +62,7 @@ function getColor(
   >
     <template #template_type-cell="{ row }">
       <UBadge variant="soft" :color="getColor(row.original.template_type)">{{
-        row.original.template_type
+        row.original.template_type ?? "unset"
       }}</UBadge>
     </template>
   </UTable>

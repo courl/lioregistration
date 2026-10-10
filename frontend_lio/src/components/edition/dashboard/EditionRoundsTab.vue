@@ -3,16 +3,16 @@ import type { RoundModalProps } from "@/components/rounds/modals/RoundModal.sche
 import type { Edition } from "@/types/edition.ts"
 import type { Round, RoundId } from "@/types/round.ts"
 
-import { useConfirmDialog } from "@/composables/use-confirm-dialog.ts"
+import { useAuth } from "@/composables/api.ts"
 import { useRoundModal } from "@/composables/use-round-modal.ts"
 import { useRounds } from "@/composables/use-round.ts"
 
 const props = defineProps<{ edition: Edition }>()
+const auth = useAuth()
 const { rounds, createRound, updateRound, deleteRound } = useRounds(
   () => props.edition.id,
 )
 const roundDialog = useRoundModal()
-const confirmDialog = useConfirmDialog()
 
 async function openRoundDialog(props: RoundModalProps, id?: RoundId) {
   const result = await roundDialog(props)
@@ -25,15 +25,9 @@ async function openRoundDialog(props: RoundModalProps, id?: RoundId) {
   }
 }
 
+// RoundsList already asked for confirmation
 async function processDeleteRound(round: Round) {
-  if (
-    await confirmDialog({
-      title: `Delete Round`,
-      description: `Are you sure you want to delete ${round.name}?`,
-    })
-  ) {
-    await deleteRound(round.id)
-  }
+  await deleteRound(round.id)
 }
 </script>
 
@@ -51,6 +45,7 @@ async function processDeleteRound(round: Round) {
           />
         </div>
         <UButton
+          v-if="auth.isAdmin"
           icon="i-lucide-plus"
           variant="subtle"
           @click="async () => await openRoundDialog({ title: 'New Round' })"

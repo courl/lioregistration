@@ -6,6 +6,7 @@ import * as z from "zod"
 
 import type { ActiveEdition } from "@/types/edition.ts"
 
+import { useDebounced } from "@/composables/use-debounced.ts"
 import { useRegister } from "@/composables/use-register.ts"
 import CalendarDate from "@/types/calendar-date.ts"
 import { FIRST_CONTACT, PROGRAMMING_LANGUAGE } from "@/types/registration.ts"
@@ -15,53 +16,75 @@ const emit = defineEmits<{
   registered: [data: RegisterData]
 }>()
 const schoolQuery = ref("")
-const toast = useToast()
 const submitLoading = ref<boolean>(false)
-const { schools, register, loading } = useRegister(schoolQuery)
+const { schools, register, loading } = useRegister(useDebounced(schoolQuery))
 
 const createdSchools = ref<string[]>([])
 
 const schoolsToDisplay = computed(() => [createdSchools.value, schools.value])
 
 const RegisterSchema = z.object({
-  given_name: z.string("Given name is required"),
-  family_name: z.string("Family name is required"),
-  birthdate: z.date("Birthdate is required"),
-  gender: z.enum(["male", "female", "other"]),
-  address_street: z.string("Street is required"),
-  address_postal_code: z.string("Postal code is required"),
-  address_locality: z.string("Locality is required"),
-  email: z.email("Email is required"),
-  phone: z.string("Phone number is required"),
-  school_name: z.string("School is required"),
-  grade: z.string("Grade is required"),
+  given_name: z
+    .string("Given name is required")
+    .trim()
+    .min(1, "Given name is required"),
+  family_name: z
+    .string("Family name is required")
+    .trim()
+    .min(1, "Family name is required"),
+  birthdate: z.instanceof(CalendarDate, { message: "Birthdate is required" }),
+  gender: z.enum(["male", "female", "other"], "Gender is required"),
+  address_street: z
+    .string("Street is required")
+    .trim()
+    .min(1, "Street is required"),
+  address_postal_code: z
+    .string("Postal code is required")
+    .trim()
+    .min(1, "Postal code is required"),
+  address_locality: z
+    .string("Locality is required")
+    .trim()
+    .min(1, "Locality is required"),
+  email: z.email("A valid email is required"),
+  phone: z
+    .string("Phone number is required")
+    .trim()
+    .min(1, "Phone number is required"),
+  school_name: z
+    .string("School is required")
+    .trim()
+    .min(1, "School is required"),
+  grade: z.string("Grade is required").trim().min(1, "Grade is required"),
   programming_languages: z.enum(PROGRAMMING_LANGUAGE).array(),
-  first_contact_source: z.enum(FIRST_CONTACT),
-  first_contact_other: z.string().optional(),
+  first_contact_source: z.enum(FIRST_CONTACT, "Please select an option"),
+  first_contact_other: z.string().trim().optional(),
 })
 
 type RegisterData = z.output<typeof RegisterSchema>
-const state = reactive<Partial<RegisterData>>({})
+const state = reactive<Partial<RegisterData>>({ programming_languages: [] })
 
 async function onSubmit(event: FormSubmitEvent<RegisterData>) {
   submitLoading.value = true
   try {
     await register({
       ...event.data,
-      birthdate: new CalendarDate({ date: event.data.birthdate }),
+      first_contact_other:
+        event.data.first_contact_source === "Other"
+          ? event.data.first_contact_other
+          : undefined,
     })
     emit("registered", event.data)
-  } catch (error) {
-    console.error(error)
-    toast.add({
-      title: "Uh oh! Something went wrong.",
-      description: "Registration failed",
-      icon: "i-lucide-triangle-alert",
-    })
+  } catch {
+    // The API client already shows the reason (e.g. email already registered)
   } finally {
     submitLoading.value = false
   }
 }
+
+const fromInputDate = (
+  date: Parameters<typeof CalendarDate.fromDateValue>[0],
+) => CalendarDate.fromDateValue(date)
 </script>
 
 <template>
@@ -110,10 +133,9 @@ async function onSubmit(event: FormSubmitEvent<RegisterData>) {
                 :range="false"
                 class="w-full"
                 icon="i-lucide-cake"
+                :model-value="state.birthdate?.toDateValue()"
                 @update:model-value="
-                  (value) => {
-                    state.birthdate = value ? value.toDate('UTC') : undefined
-                  }
+                  (date) => (state.birthdate = fromInputDate(date))
                 "
               />
             </UFormField>
@@ -270,12 +292,7 @@ async function onSubmit(event: FormSubmitEvent<RegisterData>) {
           </UFormField>
         </section>
 
-        <UButton
-          type="submit"
-          size="lg"
-          block
-          :loading="loading || submitLoading"
-        >
+        <UButton type="submit" size="lg" block :loading="submitLoading">
           Submit registration
         </UButton>
       </UForm>

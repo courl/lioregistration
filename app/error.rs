@@ -17,6 +17,8 @@ pub enum AppError {
     BadRequest(String),
     #[error("unauthorized")]
     Unauthorized,
+    #[error("forbidden")]
+    Forbidden,
     #[error("{0}")]
     Gone(String),
     #[error("too many requests")]
@@ -70,6 +72,7 @@ impl IntoResponse for AppError {
             Self::Conflict(m) => (StatusCode::CONFLICT, m.clone()),
             Self::BadRequest(m) => (StatusCode::BAD_REQUEST, m.clone()),
             Self::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".into()),
+            Self::Forbidden => (StatusCode::FORBIDDEN, "Forbidden".into()),
             Self::Gone(m) => (StatusCode::GONE, m.clone()),
             Self::TooManyRequests => (StatusCode::TOO_MANY_REQUESTS, "Too many requests".into()),
             Self::Database(e) => {
@@ -124,6 +127,7 @@ mod tests {
     #[test]
     fn unauthorized_maps_to_401() {
         assert_eq!(status(AppError::Unauthorized), StatusCode::UNAUTHORIZED);
+        assert_eq!(status(AppError::Forbidden), StatusCode::FORBIDDEN);
     }
 
     #[test]

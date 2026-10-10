@@ -2,12 +2,12 @@ import type { Badge } from "@/types/badge.ts"
 import type CalendarDate from "@/types/calendar-date.ts"
 
 export type EmailTemplateId = Badge<number, "email_id">
-export type EmailAttachmentId = Badge<number, "attachment_id">
+type EmailAttachmentId = Badge<number, "attachment_id">
 
 export interface EmailTemplate {
   id: EmailTemplateId
   name: string
-  template_type?: "registration" | "round" | "error"
+  template_type?: "registration" | "round" | "error" | null
 }
 
 export interface EmailAttachment {
@@ -42,14 +42,14 @@ export interface EmailPreviewRequest {
   }
 }
 
-export interface AttachmentPreview {
+interface AttachmentPreview {
   name: string
-  data_base64?: string
-  error?: string
+  data_base64?: string | null
+  error?: string | null
 }
 
 export interface EmailPreview {
-  html?: string
+  html?: string | null
   attachments: AttachmentPreview[]
-  error?: string
+  error?: string | null
 }

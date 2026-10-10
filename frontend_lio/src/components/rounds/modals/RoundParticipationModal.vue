@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { FormSubmitEvent } from "@nuxt/ui"
 
-import { computed, reactive, useTemplateRef, watch } from "vue"
+import { computed, reactive, watch } from "vue"
 
 import type { ParticipationState } from "@/types/round.ts"
 
@@ -20,8 +20,6 @@ const emit = defineEmits<{
 
 const schema = computed(() => calculateParticipationSchema(props.tasks))
 
-const form = useTemplateRef("form")
-
 const stateItems: {
   label: string
   value: ParticipationState
@@ -32,11 +30,7 @@ const stateItems: {
   { label: "No Show", value: "noShow" },
 ]
 
-// eslint-disable-next-line vue/no-setup-props-reactivity-loss
-const state = reactive<ParticipationData>({
-  state: props.participant.state,
-  points: props.participant.points,
-})
+const state = reactive<ParticipationData>({ state: "invited", points: [] })
 
 watch(
   () => props.participant,
@@ -54,7 +48,10 @@ function onSubmit(event: FormSubmitEvent<ParticipationData>) {
 }
 
 const total = computed(() =>
-  state.points.reduce((sum, value) => sum + value, 0),
+  state.points.reduce(
+    (sum, value) => sum + (Number.isFinite(value) ? value : 0),
+    0,
+  ),
 )
 </script>
 
@@ -67,7 +64,6 @@ const total = computed(() =>
   >
     <template #body>
       <UForm
-        ref="form"
         :schema="schema"
         :state="state"
         class="space-y-4"
@@ -94,32 +90,31 @@ const total = computed(() =>
           </div>
         </div>
 
-        <div class="flex justify-between border-t pt-4">
+        <div class="flex justify-between border-t border-default pt-4">
           <span class="text-muted"> Total </span>
 
           <span class="font-semibold tabular-nums">
             {{ total }}
           </span>
         </div>
+
+        <div class="flex justify-end">
+          <UFieldGroup>
+            <UButton
+              label="Cancel"
+              color="error"
+              variant="outline"
+              @click="emit('close', undefined)"
+            />
+            <UButton
+              type="submit"
+              label="Save"
+              color="primary"
+              variant="subtle"
+            />
+          </UFieldGroup>
+        </div>
       </UForm>
-    </template>
-
-    <template #footer>
-      <UFieldGroup>
-        <UButton
-          label="Cancel"
-          color="error"
-          variant="outline"
-          @click="emit('close', undefined)"
-        />
-
-        <UButton
-          label="Save"
-          color="primary"
-          variant="subtle"
-          @click="form?.submit()"
-        />
-      </UFieldGroup>
     </template>
   </UModal>
 </template>

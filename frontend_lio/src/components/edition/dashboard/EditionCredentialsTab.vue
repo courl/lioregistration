@@ -1,18 +1,72 @@
 <script setup lang="ts">
 import type { TableColumn } from "@nuxt/ui"
 
-import { computed } from "vue"
+import { computed, ref } from "vue"
 
 import type { Credentials } from "@/types/credentials.ts"
 import type { Edition } from "@/types/edition.ts"
 
+import { useAuth } from "@/composables/api.ts"
+import { useConfirmDialog } from "@/composables/use-confirm-dialog.ts"
+import { useCredentialsModal } from "@/composables/use-credentials-modal.ts"
 import { useCredentials } from "@/composables/use-credentials.ts"
 
 const props = defineProps<{ edition: Edition }>()
 
-const { credentials, unassignCredentials, deleteCredentials } = useCredentials(
-  () => props.edition.id,
-)
+const auth = useAuth()
+const confirm = useConfirmDialog()
+const credentialsDialog = useCredentialsModal()
+const {
+  credentials,
+  loading,
+  createCredentials,
+  unassignCredentials,
+  deleteCredentials,
+} = useCredentials(() => props.edition.id)
+
+const filter = ref<"all" | "assigned" | "free">("all")
+const filteredCredentials = computed(() => {
+  switch (filter.value) {
+    case "all": {
+      return credentials.value
+    }
+    case "assigned": {
+      return credentials.value.filter((x) => x.registration !== null)
+    }
+    case "free": {
+      return credentials.value.filter((x) => x.registration === null)
+    }
+  }
+})
+
+async function addCredentials() {
+  const result = await credentialsDialog({})
+  if (result) {
+    await createCredentials(result)
+  }
+}
+
+async function processUnassign(value: Credentials) {
+  if (
+    await confirm({
+      title: "Unassign credentials",
+      description: `Unassign '${value.username}' from ${value.registration?.given_name ?? ""} ${value.registration?.family_name ?? ""}?`,
+    })
+  ) {
+    await unassignCredentials(value.id)
+  }
+}
+
+async function processDelete(value: Credentials) {
+  if (
+    await confirm({
+      title: "Delete credentials",
+      description: `Are you sure you want to delete '${value.username}'?`,
+    })
+  ) {
+    await deleteCredentials(value.id)
+  }
+}
 
 const counts = computed(() => {
   const result = { free: 0, assigned: 0 }
@@ -30,7 +84,7 @@ const columns: TableColumn<Credentials>[] = [
   { id: "username", header: "Username" },
   { id: "password", header: "Password" },
   { id: "registrant", header: "Assigned to" },
-  { id: "actions", header: "" },
+  ...(auth.isAdmin ? [{ id: "actions", header: "" }] : []),
 ]
 </script>
 
@@ -41,6 +95,7 @@ const columns: TableColumn<Credentials>[] = [
         <div>
           <span class="font-bold text-lg">Credentials</span>
           <IconTextBlock
+            v-model="filter"
             class="mt-1"
             :items="[
               {
@@ -61,11 +116,22 @@ const columns: TableColumn<Credentials>[] = [
             ]"
           />
         </div>
-        <UButton icon="i-lucide-plus" variant="subtle">Add Credentials</UButton>
+        <UButton
+          v-if="auth.isAdmin"
+          icon="i-lucide-plus"
+          variant="subtle"
+          @click="addCredentials"
+          >Add Credentials</UButton
+        >
       </div>
     </template>
 
-    <UTable :data="credentials" :columns="columns" class="flex-1">
+    <UTable
+      :data="filteredCredentials"
+      :columns="columns"
+      :loading="loading"
+      class="flex-1"
+    >
       <template #username-cell="{ row }">
         <span class="font-mono">{{ row.original.username }}</span>
       </template>
@@ -97,22 +163,24 @@ const columns: TableColumn<Credentials>[] = [
             variant="ghost"
             size="xs"
             title="Unassign"
-            @click="async () => await unassignCredentials(row.original.id)"
+            aria-label="Unassign"
+            @click="async () => await processUnassign(row.original)"
           />
           <UButton
-            v-if="row.original.registration"
+            v-else
             icon="i-lucide-trash"
             color="error"
             variant="ghost"
             size="xs"
             title="Delete"
-            @click="async () => await deleteCredentials(row.original.id)"
+            aria-label="Delete"
+            @click="async () => await processDelete(row.original)"
           />
         </div>
       </template>
     </UTable>
     <UEmpty
-      v-if="credentials.length === 0"
+      v-if="!loading && credentials.length === 0"
       icon="i-lucide-key-round"
       title="No credentials"
       description="This edition has no credentials yet. Generate some to get started."

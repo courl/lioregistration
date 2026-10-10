@@ -63,7 +63,7 @@ export const useRegistration = (
 
   const unassignCredentials = async () => {
     const id_ = toValue(id)
-    if (id_ === undefined || item.value?.credentials === undefined) {
+    if (id_ === undefined || !item.value?.credentials) {
       return
     }
     await api(

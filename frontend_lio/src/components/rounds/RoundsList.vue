@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { useConfirmDialog } from "@/composables/use-confirm-dialog.js"
+import { useAuth } from "@/composables/api.ts"
+import { useConfirmDialog } from "@/composables/use-confirm-dialog.ts"
 import { type Round } from "@/types/round.ts"
 
 defineProps<{ rounds: Round[] }>()
@@ -7,6 +8,7 @@ const emit = defineEmits<{
   deleteRound: [round: Round]
   editRound: [round: Round]
 }>()
+const auth = useAuth()
 const confirm = useConfirmDialog()
 
 async function handleDelete(round: Round) {
@@ -48,11 +50,12 @@ async function handleDelete(round: Round) {
             ]"
           />
         </div>
-        <UFieldGroup>
+        <UFieldGroup v-if="auth.isAdmin">
           <UButton
             variant="ghost"
             size="sm"
             icon="i-lucide-trash"
+            aria-label="Delete round"
             color="error"
             @click.prevent="async () => await handleDelete(round)"
           />
@@ -60,6 +63,7 @@ async function handleDelete(round: Round) {
             variant="ghost"
             size="sm"
             icon="i-lucide-pencil"
+            aria-label="Edit round"
             @click.prevent="emit('editRound', round)"
           />
         </UFieldGroup>

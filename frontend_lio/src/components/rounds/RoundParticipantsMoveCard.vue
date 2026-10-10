@@ -7,7 +7,7 @@ import type { Participant, Round, RoundId } from "@/types/round.ts"
 import type { StudentId } from "@/types/student.ts"
 
 import ParticipationBadge from "@/components/rounds/ParticipationBadge.vue"
-import { useConfirmDialog } from "@/composables/use-confirm-dialog.js"
+import { useConfirmDialog } from "@/composables/use-confirm-dialog.ts"
 
 const props = defineProps<{ participants: Participant[]; rounds: Round[] }>()
 const emit = defineEmits<{
@@ -49,11 +49,12 @@ const columns = computed<TableColumn<Participant>[]>(() => [
 ])
 
 function applyThreshold() {
+  const value = threshold.value
   for (const [index, participant] of props.participants.entries()) {
     selected.value[index] =
-      threshold.value === undefined
-        ? false
-        : participant.total >= threshold.value
+      typeof value === "number" && Number.isFinite(value)
+        ? participant.total >= value
+        : false
   }
   triggerRef(selected)
 }
@@ -100,7 +101,7 @@ async function move() {
       <div class="flex items-end gap-2">
         <UFormField label="Preselect by score" class="flex-1">
           <UInput
-            v-model="threshold"
+            v-model.number="threshold"
             type="number"
             :min="0"
             class="w-full"
@@ -119,7 +120,7 @@ async function move() {
       @select="(_, row) => (selected[row.index] = !selected[row.index])"
     >
       <template #select-cell="{ row }">
-        <UCheckbox v-model="selected[row.index]" />
+        <UCheckbox v-model="selected[row.index]" @click.stop />
       </template>
       <template #state-cell="{ row }">
         <ParticipationBadge :state="row.original.state" />

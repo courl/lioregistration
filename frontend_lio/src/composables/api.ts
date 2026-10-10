@@ -31,7 +31,12 @@ function reviveDates(key: string, value: unknown) {
   return value
 }
 
-//TODO: include access rights
+function errorMessage(data: unknown): string {
+  if (typeof data === "object" && data !== null && "error" in data) {
+    return String(data.error)
+  }
+  return typeof data === "string" && data ? data : "Something failed"
+}
 
 const createAPI = (toastOn404: boolean) => {
   return ofetch.create({
@@ -41,31 +46,26 @@ const createAPI = (toastOn404: boolean) => {
     credentials: "include",
     // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     parseResponse: (txt) => (txt ? JSON.parse(txt, reviveDates) : txt),
-    onResponseError({ response }) {
+    onResponseError({ request, response }) {
       if (response.status === 401) {
-        const { clear } = useAuth()
-        clear()
+        // Login and session rehydration handle their own 401s.
+        const url = typeof request === "string" ? request : request.url
+        if (url.endsWith("/admin/login") || url.endsWith("/admin/me")) return
+        useAuth().clear()
         navigateTo("/login")
-      } else if (!toastOn404 && response.status === 404) {
-      } else {
-        response
-          .text()
-          .then((value) => {
-            useToast().add({
-              title: `Uh oh! Something went wrong ${response.status.toString()}.`,
-              description: value,
-              icon: "i-lucide-triangle-alert",
-            })
-            return null
-          })
-          .catch(() => {
-            useToast().add({
-              title: `Uh oh! Something went wrong ${response.status.toString()}.`,
-              description: "Something failed",
-              icon: "i-lucide-triangle-alert",
-            })
-          })
+        return
       }
+      if (!toastOn404 && response.status === 404) return
+      useToast().add({
+        title:
+          response.status === 403
+            ? "You don't have permission to do this."
+            : `Uh oh! Something went wrong (${response.status.toString()}).`,
+        description:
+          response.status === 403 ? undefined : errorMessage(response._data),
+        icon: "i-lucide-triangle-alert",
+        color: "error",
+      })
     },
   })
 }
@@ -79,6 +79,7 @@ export const useAuth = defineStore("auth", () => {
   const pending = ref(false)
 
   const isAuthenticated = computed(() => user.value !== null)
+  const isAdmin = computed(() => user.value?.role === "admin")
 
   const login = async (email: string, password: string) => {
     pending.value = true
@@ -112,6 +113,8 @@ export const useAuth = defineStore("auth", () => {
   const logout = async () => {
     try {
       await api("/admin/logout", { method: "POST" })
+    } catch {
+      // Already toasted, the local session is cleared regardless.
     } finally {
       clear()
       navigateTo("/login")
@@ -129,6 +132,7 @@ export const useAuth = defineStore("auth", () => {
     checked: readonly(checked),
     pending: readonly(pending),
     isAuthenticated,
+    isAdmin,
     login,
     fetchMe,
     logout,

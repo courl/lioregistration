@@ -11,7 +11,7 @@ defineProps<{ title: string; edition?: Edition }>()
         <template v-if="edition">
           <RouterLink
             class="hover:text-primary"
-            :to="edition.active ? '/admin' : `/admin/edition/${edition.id}`"
+            :to="edition.active ? '/admin' : `/admin/editions/${edition.id}`"
             >{{ edition.name }}</RouterLink
           >
           ·

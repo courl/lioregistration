@@ -1,20 +1,20 @@
 <script setup lang="ts">
-import { ref } from "vue"
-import { useRouter } from "vue-router"
+import { computed, ref } from "vue"
 
 import type { ParticipationData } from "@/components/rounds/modals/RoundParticipationModal.schema.ts"
+import type { EmailTemplateId } from "@/types/email.ts"
+import type { Participant, RoundId, TaskId } from "@/types/round.ts"
 
-import RoundEmailCard from "@/components/rounds/RoundEmailCard.vue"
+import { useAuth } from "@/composables/api.ts"
 import { useRound, useRounds } from "@/composables/use-round.ts"
-import { useRouteId } from "@/composables/use-route-id.js"
-import { type EmailTemplateId } from "@/types/email.ts"
-import { type Participant, type RoundId } from "@/types/round.ts"
+import { useRouteId } from "@/composables/use-route-id.ts"
 
-const router = useRouter()
+const auth = useAuth()
 const toast = useToast()
 const roundId = useRouteId<RoundId>()
 const {
   round,
+  loading,
   createTask,
   updateTask,
   deleteTask,
@@ -25,6 +25,22 @@ const {
 const { rounds, moveTo } = useRounds(() => round.value?.edition.id)
 
 const state = ref("stats")
+
+const tabs = computed(() => [
+  { icon: "i-lucide-activity", label: "Statistics", value: "stats" },
+  { icon: "i-lucide-logs", label: "Tasks", value: "tasks" },
+  { icon: "i-lucide-user", label: "Scores", value: "participants" },
+  ...(auth.isAdmin
+    ? [
+        {
+          icon: "i-lucide-circle-arrow-right",
+          label: "Move",
+          value: "move",
+        },
+        { icon: "i-lucide-mail", label: "Mail", value: "comm" },
+      ]
+    : []),
+])
 
 async function processUpdateParticipation(
   participant: Participant,
@@ -42,24 +58,31 @@ async function processUpdateParticipation(
   })
 }
 
+async function processBulkUpdateScores(
+  data: { credentials_username: string; task_scores: [TaskId, number][] }[],
+) {
+  const unmatched = await bulkUpdateScores(data)
+  if (unmatched.length > 0) {
+    toast.add({
+      title: `${unmatched.length.toString()} rows were not imported`,
+      description: `No participant of this round has the username: ${unmatched.join(", ")}`,
+      icon: "i-lucide-triangle-alert",
+      color: "warning",
+      duration: 0,
+    })
+  } else {
+    toast.add({ title: "Scores imported", color: "success" })
+  }
+}
+
 async function processSendEmail(
   email: EmailTemplateId,
   headline: string,
   body: string,
 ) {
-  try {
-    await sendEmail(email, headline, body)
-
-    toast.add({
-      title: "Email send successfully",
-    })
-  } catch (error) {
-    toast.add({
-      title: "Email not sent",
-      description: error instanceof Error ? error.message : String(error),
-      color: "error",
-    })
-  }
+  // Failures are toasted by the API client
+  await sendEmail(email, headline, body)
+  toast.add({ title: "Emails queued for sending", color: "success" })
 }
 </script>
 
@@ -83,16 +106,7 @@ async function processSendEmail(
         />
       </template>
     </PageHeader>
-    <UTabs
-      v-model="state"
-      :items="[
-        { icon: 'i-lucide-activity', label: 'Statistics', value: 'stats' },
-        { icon: 'i-lucide-logs', label: 'Tasks', value: 'tasks' },
-        { icon: 'i-lucide-user', label: 'Scores', value: 'participants' },
-        { icon: 'i-lucide-circle-arrow-right', label: 'Move', value: 'move' },
-        { icon: 'i-lucide-mail', label: 'Mail', value: 'comm' },
-      ]"
-    />
+    <UTabs v-model="state" :items="tabs" />
     <template v-if="state === 'tasks'">
       <RoundTasksCard
         :tasks="round.tasks"
@@ -106,36 +120,37 @@ async function processSendEmail(
     <template v-else-if="state === 'participants'">
       <RoundScoresCard
         :round="round"
-        @bulk-update-score="bulkUpdateScores"
+        @bulk-update-score="processBulkUpdateScores"
         @update-participation="processUpdateParticipation"
       />
     </template>
-    <template v-else-if="state === 'move'">
+    <template v-else-if="state === 'move' && auth.isAdmin">
       <RoundParticipantsMoveCard
         :participants="round.participants"
-        :rounds="rounds.filter((x) => (round ? x.id != round.id : true))"
-        @move-to="async (round, students) => await moveTo(round.id, students)"
+        :rounds="rounds.filter((x) => x.id !== round?.id)"
+        @move-to="async (target, students) => await moveTo(target.id, students)"
       />
     </template>
-    <template v-else-if="state === 'comm'">
+    <template v-else-if="state === 'comm' && auth.isAdmin">
       <RoundEmailCard @send-mail="processSendEmail" />
     </template>
     <template v-else>
       <UEmpty
         icon="i-lucide-triangle-alert"
-        title="No implemented"
-        description="It looks like you are accessing a page that has not yet been implemented."
+        title="Not implemented"
+        description="Round statistics have not been implemented yet."
       />
+      <JsonDump :value="round" />
     </template>
   </div>
 
   <UError
-    v-else
+    v-else-if="!loading"
     :error="{
       status: 404,
       statusMessage: 'Round not found',
       message: 'This round does not exist.',
     }"
-    @clear="router.push('/admin/rounds')"
+    :clear="{ label: 'Back to dashboard', to: '/admin' }"
   />
 </template>

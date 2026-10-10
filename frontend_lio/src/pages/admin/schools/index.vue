@@ -2,10 +2,11 @@
 import { ref } from "vue"
 import { useRouter } from "vue-router"
 
+import { useDebounced } from "@/composables/use-debounced.ts"
 import { useSchools } from "@/composables/use-school.ts"
 
 const globalFilter = ref("")
-const { schools, mergeSchools } = useSchools(globalFilter)
+const { schools, mergeSchools } = useSchools(useDebounced(globalFilter))
 const router = useRouter()
 </script>
 
@@ -22,7 +23,7 @@ const router = useRouter()
   </PageHeader>
   <SchoolsTable
     :schools="schools"
-    @select="(school) => router.push(`/admin/schools/${school.id}`)"
+    @select="(school) => router.push(`/admin/schools/${school.id.toString()}`)"
     @merge-schools="mergeSchools"
   />
 </template>

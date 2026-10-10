@@ -1,5 +1,7 @@
 <script setup lang="ts">
-const props = defineProps<{ to: string; compact?: boolean }>()
+import type { RouteLocationRaw } from "vue-router"
+
+const props = defineProps<{ to: RouteLocationRaw; compact?: boolean }>()
 </script>
 
 <template>

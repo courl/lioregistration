@@ -4,22 +4,23 @@ import { computed } from "vue"
 import type { ActiveEdition } from "@/types/edition.ts"
 
 import { useActiveEdition } from "@/composables/use-register.ts"
+import CalendarDate from "@/types/calendar-date.ts"
 
 const emit = defineEmits<{
   register: [edition: ActiveEdition]
 }>()
 
-const { edition } = useActiveEdition()
+const { edition, loading } = useActiveEdition()
+// Both bounds are inclusive days, like the backend's check
 const registrationState = computed(() => {
   if (!edition.value) {
     return "closed"
   }
-  const today = new Date()
-  if (today < edition.value.registration_opens_at.getDate()) {
+  const today = new CalendarDate({}).getTime()
+  if (today < edition.value.registration_opens_at.getTime()) {
     return "tooEarly"
   }
-
-  if (today > edition.value.registration_closes_at.getDate()) {
+  if (today > edition.value.registration_closes_at.getTime()) {
     return "tooLate"
   }
   return "open"
@@ -50,7 +51,7 @@ const registrationState = computed(() => {
         </template>
       </p>
     </template>
-    <template v-else>
+    <template v-else-if="!loading">
       <p class="text-muted text-lg">No active edition. Check back later.</p>
     </template>
     <USeparator />

@@ -1,21 +1,20 @@
 <script setup lang="ts">
 import type { FormSubmitEvent } from "@nuxt/ui"
 
-import { reactive, useTemplateRef, watch } from "vue"
+import { reactive, watch } from "vue"
 
 import {
   type TaskData,
   type TaskDataProps,
   type TaskModalResult,
   TaskSchema,
-} from "./RoundTaskModal.schema"
+} from "@/components/rounds/modals/RoundTaskModal.schema.ts"
 
 const props = defineProps<TaskDataProps>()
 
 const emit = defineEmits<{ close: [TaskModalResult] }>()
 
 const state = reactive<Partial<TaskData>>({})
-const form = useTemplateRef("form")
 
 watch(
   () => props.task,
@@ -35,10 +34,9 @@ function onSubmit(event: FormSubmitEvent<TaskData>) {
 </script>
 
 <template>
-  <UModal :title="title" :ui="{ footer: 'justify-end' }">
+  <UModal :title="title">
     <template #body>
       <UForm
-        ref="form"
         :schema="TaskSchema"
         :state="state"
         class="space-y-4"
@@ -49,29 +47,39 @@ function onSubmit(event: FormSubmitEvent<TaskData>) {
         </UFormField>
         <div class="grid grid-cols-2 gap-4">
           <UFormField label="Max Points" name="max_points">
-            <UInput v-model="state.max_points" type="number" min="0" />
+            <UInput
+              v-model.number="state.max_points"
+              type="number"
+              min="0"
+              class="w-full"
+            />
           </UFormField>
           <UFormField label="Ordinal" name="ordinal">
-            <UInput v-model="state.ordinal" type="number" min="0" />
+            <UInput
+              v-model.number="state.ordinal"
+              type="number"
+              min="0"
+              class="w-full"
+            />
           </UFormField>
         </div>
+        <div class="flex justify-end">
+          <UFieldGroup>
+            <UButton
+              label="Cancel"
+              color="error"
+              variant="outline"
+              @click="emit('close', undefined)"
+            />
+            <UButton
+              type="submit"
+              label="Confirm"
+              color="primary"
+              variant="subtle"
+            />
+          </UFieldGroup>
+        </div>
       </UForm>
-    </template>
-    <template #footer>
-      <UFieldGroup>
-        <UButton
-          label="Cancel"
-          color="error"
-          variant="outline"
-          @click="emit('close', undefined)"
-        />
-        <UButton
-          label="Confirm"
-          color="primary"
-          variant="subtle"
-          @click="form?.submit()"
-        />
-      </UFieldGroup>
     </template>
   </UModal>
 </template>

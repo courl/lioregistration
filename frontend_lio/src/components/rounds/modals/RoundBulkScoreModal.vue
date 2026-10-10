@@ -36,15 +36,20 @@ const result = computed<RoundBulkScoreResult>(() => {
 
   const result: RoundScoreData[] = []
   for (const row of parsed.value.rows) {
-    result.push({
-      credentials_username: row[userColumn.name],
-      task_scores: Object.entries(row)
-        .filter(([key, _]) => key in nameToTaskId)
-        .map(([key, value]) => [nameToTaskId[key], Number.parseFloat(value)]),
-    })
+    const username = row[userColumn.name]
+    if (!username) continue
+    const task_scores: [TaskId, number][] = []
+    for (const [key, value] of Object.entries(row)) {
+      const score = Number.parseFloat(value)
+      // Empty or non-numeric cells are left unscored
+      if (Object.hasOwn(nameToTaskId, key) && Number.isFinite(score)) {
+        task_scores.push([nameToTaskId[key], score])
+      }
+    }
+    result.push({ credentials_username: username, task_scores })
   }
 
-  return result
+  return result.length > 0 ? result : undefined
 })
 
 function confirmOrValidate() {
@@ -88,8 +93,11 @@ function removeHeader(header: ParsedHeader) {
   <UModal title="Add scores" :ui="{ footer: 'justify-end' }">
     <template #body>
       <template v-if="step === 'data'">
-        <span class="text-muted mb-1">Add csv or space separated data</span>
-        <UTextarea v-model="data" class="w-full" />
+        <p class="text-muted mb-1">
+          Paste CSV or space separated data. The first line is the header: one
+          column with the contest usernames, one column per task name.
+        </p>
+        <UTextarea v-model="data" class="w-full font-mono" :rows="8" />
       </template>
       <template v-if="step === 'validate' && parsed"
         ><div>
@@ -174,7 +182,7 @@ function removeHeader(header: ParsedHeader) {
           :label="step === 'validate' ? 'Confirm' : 'Next'"
           color="primary"
           variant="subtle"
-          :disabled="step === 'validate' ? !result : !data"
+          :disabled="step === 'validate' ? !result : !data.trim()"
           @click="confirmOrValidate"
         />
       </UFieldGroup>

@@ -1,26 +1,21 @@
 <script setup lang="ts">
-import { useRouter } from "vue-router"
-
 import type { StudentId } from "@/types/student.ts"
 
-import { useRouteId } from "@/composables/use-route-id.js"
+import { useRouteId } from "@/composables/use-route-id.ts"
 import { useStudent } from "@/composables/use-student.ts"
 
-const router = useRouter()
-
 const studentId = useRouteId<StudentId>()
-
-const { student } = useStudent(studentId)
+const { student, loading } = useStudent(studentId)
 </script>
 
 <template>
   <template v-if="student">
-    <PageHeader :title="student.given_name + ' ' + student.family_name">
+    <PageHeader :title="`${student.given_name} ${student.family_name}`">
       <template #subtitle>
         <IconTextBlock
           :items="[
-            { icon: 'i-lucide-mail', text: `${student.email}` },
-            { icon: 'i-lucide-cake', text: `${student.birthdate}` },
+            { icon: 'i-lucide-mail', text: student.email },
+            { icon: 'i-lucide-cake', text: student.birthdate.toString() },
           ]"
         />
       </template>
@@ -28,20 +23,18 @@ const { student } = useStudent(studentId)
     <UEmpty
       icon="i-lucide-triangle-alert"
       title="Not implemented"
-      description="You are accessing a page that has not yet been implented."
+      description="The student page has not been implemented yet."
     />
-    <pre>
-      {{ student }}
-    </pre>
+    <JsonDump :value="student" />
   </template>
 
   <UError
-    v-else
+    v-else-if="!loading"
     :error="{
       status: 404,
       statusMessage: 'Student not found',
       message: 'This student does not exist.',
     }"
-    @clear="router.push('/admin/students')"
+    :clear="{ label: 'Back to students', to: '/admin/students' }"
   />
 </template>

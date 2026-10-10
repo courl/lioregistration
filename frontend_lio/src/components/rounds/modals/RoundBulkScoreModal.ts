@@ -28,6 +28,10 @@ export function parseInput(text: string, tasks: Task[]): ParsedData {
     .map((l) => l.trim())
     .filter(Boolean)
 
+  if (lines.length === 0) {
+    return { headers: [], rows: [] }
+  }
+
   const isCsv = lines[0].includes(",") || lines[0].includes(";")
   const separator = lines[0].includes(";") ? ";" : ","
 
@@ -44,14 +48,16 @@ export function parseInput(text: string, tasks: Task[]): ParsedData {
     )
 
   let foundUser = false
-  const parsedHeaders = headers.map((header, _): ParsedHeader => {
+  const parsedHeaders = headers.map((header): ParsedHeader => {
     const values = rows.map((r) => r[header])
 
     const mostlyStrings =
       values.length > 0 && values.every((v) => Number.isNaN(Number(v)))
 
     const looksLikeUser = /user|participant|name/i.test(header)
-    foundUser = !foundUser && looksLikeUser && mostlyStrings
+    // Only the first matching column is the user column
+    const isUserColumn = !foundUser && looksLikeUser && mostlyStrings
+    foundUser ||= isUserColumn
     let taskId = undefined
     for (const task of tasks) {
       if (task.name.toLowerCase() === header.toLowerCase()) {
@@ -61,7 +67,7 @@ export function parseInput(text: string, tasks: Task[]): ParsedData {
     return {
       name: header,
       taskId,
-      isUserColumn: foundUser,
+      isUserColumn,
     }
   })
 

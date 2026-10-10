@@ -15,19 +15,17 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   const auth = useAuth()
 
-  if (!to.name.startsWith("/admin")) return true
-  if (auth.isAuthenticated) return true
+  if (!to.path.startsWith("/admin")) return true
 
   // Try to rehydrate session from cookie
-  if (!auth.checked) {
+  if (!auth.isAuthenticated && !auth.checked) {
     await auth.fetchMe()
   }
 
-  // After check, still not authenticated
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-  if (!auth.isAuthenticated) {
-    return "/login"
-  }
+  if (!auth.isAuthenticated) return "/login"
+
+  // Settings (email templates) are admin-only, observers can't even read them
+  if (to.path.startsWith("/admin/settings") && !auth.isAdmin) return "/admin"
 
   return true
 })

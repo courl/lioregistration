@@ -1,7 +1,7 @@
 import { type MaybeRefOrGetter, ref, toValue, watch } from "vue"
 
 import type { EditionId } from "@/types/edition.ts"
-import type { EmailTemplateId } from "@/types/email"
+import type { EmailTemplateId } from "@/types/email.ts"
 import type {
   NewRound,
   NewTask,
@@ -66,7 +66,7 @@ export const useRounds = (id: MaybeRefOrGetter<EditionId | undefined>) => {
   }
 
   const moveTo = async (round: RoundId, students: StudentId[]) => {
-    await api(`/admin/rounds/${round.toString()}`, {
+    await api(`/admin/rounds/${round.toString()}/add`, {
       method: "POST",
       body: students,
     })
@@ -107,7 +107,7 @@ export const useRound = (id: MaybeRefOrGetter<RoundId | undefined>) => {
     if (roundId === undefined) {
       return
     }
-    await api(`/admin/rounds/${roundId.toString()}`, {
+    await api(`/admin/rounds/${roundId.toString()}/tasks`, {
       method: "POST",
       body: data,
     })
@@ -155,13 +155,14 @@ export const useRound = (id: MaybeRefOrGetter<RoundId | undefined>) => {
   ) => {
     const roundId = toValue(id)
     if (roundId === undefined) {
-      return
+      return []
     }
-    await api(`/admin/rounds/${roundId.toString()}/scores`, {
-      method: "POST",
-      body: data,
-    })
+    const { unmatched } = await api<{ unmatched: string[] }>(
+      `/admin/rounds/${roundId.toString()}/scores`,
+      { method: "POST", body: data },
+    )
     await reload(roundId)
+    return unmatched
   }
 
   const sendEmail = async (

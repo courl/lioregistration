@@ -2,9 +2,11 @@
 import type { EditionModalProps } from "@/components/edition/modals/EditionModal.schema.ts"
 import type { Edition } from "@/types/edition.ts"
 
+import { useAuth } from "@/composables/api.ts"
 import { useEditionModal } from "@/composables/use-edition-modal.ts"
 import { useEditions } from "@/composables/use-edition.ts"
 
+const auth = useAuth()
 const { editions, activateEdition, createEdition } = useEditions()
 const editionModal = useEditionModal()
 
@@ -24,6 +26,7 @@ async function openDialog(props: EditionModalProps) {
   <PageHeader title="Editions">
     <template #header>
       <UButton
+        v-if="auth.isAdmin"
         icon="i-lucide-plus"
         @click="openDialog({ title: 'New edition' })"
         >Add edition</UButton

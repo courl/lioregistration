@@ -129,7 +129,7 @@ async fn admin_routes_require_auth_and_role() {
             })),
         )
         .await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(status, StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]
