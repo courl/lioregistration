@@ -85,7 +85,7 @@ mod tests {
         };
         user.set_password("123").unwrap();
         assert!(user.password_hash.is_set());
-        assert!(user.password_hash.as_ref().len() > 0);
+        assert!(!user.password_hash.as_ref().is_empty());
         assert_ne!(user.password_hash.as_ref(), "123");
 
         let user = user.try_into_model().unwrap();

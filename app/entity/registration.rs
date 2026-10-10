@@ -108,6 +108,37 @@ pub struct NewRegistration {
 }
 
 impl NewRegistration {
+    /// Normalizes (trim, lowercase email) and validates the public form input.
+    pub fn validate(&mut self, today: chrono::NaiveDate) -> crate::error::AppResult<()> {
+        use crate::error::AppError;
+        use crate::utils::validation::{MAX_FIELD_LEN, ensure_email, required_text};
+
+        required_text(&mut self.given_name, "given_name")?;
+        required_text(&mut self.family_name, "family_name")?;
+        required_text(&mut self.email, "email")?;
+        self.email = self.email.to_lowercase();
+        ensure_email(&self.email)?;
+        required_text(&mut self.address_street, "address_street")?;
+        required_text(&mut self.address_postal_code, "address_postal_code")?;
+        required_text(&mut self.address_locality, "address_locality")?;
+        required_text(&mut self.phone, "phone")?;
+        required_text(&mut self.grade, "grade")?;
+        required_text(&mut self.school_name, "school_name")?;
+        if let Some(other) = &mut self.first_contact_other {
+            *other = other.trim().to_owned();
+            if other.chars().count() > MAX_FIELD_LEN {
+                return Err(AppError::BadRequest(format!(
+                    "first_contact_other must be at most {MAX_FIELD_LEN} characters"
+                )));
+            }
+        }
+        let oldest = chrono::NaiveDate::from_ymd_opt(1900, 1, 1).unwrap_or(chrono::NaiveDate::MIN);
+        if self.birthdate >= today || self.birthdate < oldest {
+            return Err(AppError::BadRequest("birthdate is not plausible".into()));
+        }
+        Ok(())
+    }
+
     #[must_use]
     pub fn into_active_model(self, edition_id: i32, school: &super::school::Model) -> ActiveModel {
         ActiveModel {

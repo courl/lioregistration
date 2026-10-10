@@ -85,14 +85,14 @@ mod tests {
         let token = test_app.state.token_generator.user_to_token(&user);
         assert!(token.is_ok());
         let token = token.unwrap();
-        assert!(token.len() > 0);
+        assert!(!token.is_empty());
 
         sleep(std::time::Duration::from_secs(1)).await;
 
         let refreshed_token = test_app.state.token_generator.refresh(&token).await;
         assert!(refreshed_token.is_ok());
         let refreshed_token = refreshed_token.unwrap();
-        assert!(refreshed_token.len() > 0);
+        assert!(!refreshed_token.is_empty());
         assert_ne!(token, refreshed_token);
     }
 }

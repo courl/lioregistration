@@ -5,8 +5,8 @@ use crate::jobs::Job;
 use crate::jobs::send_email::SendEmailProcessor;
 use crate::services::email_attachment::EmailAttachmentContext;
 use crate::settings::SmtpSettings;
-use sea_orm::ColumnTrait;
 use sea_orm::{ActiveModelTrait, ActiveValue, IntoActiveModel, QueryFilter};
+use sea_orm::{ColumnTrait, QueryOrder};
 use sea_orm::{DatabaseConnection, EntityTrait, TransactionTrait};
 use std::sync::Arc;
 use std::time::Duration;
@@ -39,6 +39,9 @@ impl Worker {
     }
 
     pub async fn run(&self) {
+        if let Err(e) = self.fail_interrupted_jobs().await {
+            tracing::error!("Could not recover interrupted jobs: {e:#}");
+        }
         loop {
             match self.tick().await {
                 Ok(true) => {}
@@ -51,6 +54,26 @@ impl Worker {
         }
     }
 
+    /// A job still `Running` at startup was interrupted by a crash/restart. Retrying could
+    /// re-send emails that already went out, so mark it `Failed` for an admin to look at.
+    async fn fail_interrupted_jobs(&self) -> AppResult<()> {
+        let result = entity::job::Entity::update_many()
+            .col_expr(
+                entity::job::Column::State,
+                sea_orm::sea_query::Expr::value(JobState::Failed),
+            )
+            .filter(entity::job::COLUMN.state.eq(JobState::Running))
+            .exec(&self.db)
+            .await?;
+        if result.rows_affected > 0 {
+            tracing::error!(
+                "Marked {} interrupted job(s) as failed; some of their emails may not have been sent",
+                result.rows_affected
+            );
+        }
+        Ok(())
+    }
+
     async fn tick(&self) -> AppResult<bool> {
         let job = self
             .db
@@ -58,6 +81,7 @@ impl Worker {
                 Box::pin(async move {
                     let job = entity::job::Entity::find()
                         .filter(entity::job::COLUMN.state.eq(JobState::Pending))
+                        .order_by_asc(entity::job::COLUMN.id)
                         .one(txn)
                         .await?;
                     if let Some(job) = job {

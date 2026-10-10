@@ -2,7 +2,6 @@ use crate::entity::{registration, school};
 use crate::error::{AppError, AppResult};
 use sea_orm::TransactionTrait;
 use sea_orm::entity::prelude::*;
-use std::cmp::Ordering;
 
 pub async fn list_schools(db: &impl ConnectionTrait) -> AppResult<Vec<school::Model>> {
     Ok(school::Entity::find().all(db).await?)
@@ -24,16 +23,10 @@ pub async fn find_schools(query: &str, db: &impl ConnectionTrait) -> AppResult<V
             }
         })
         .collect::<Vec<_>>();
-    // todo: sort by ascending? and remove rev?
-    schools.sort_by(|(sim1, _), (sim2, _)| {
-        sim1.partial_cmp(sim2).unwrap_or(Ordering::Less) // todo: here just random ordering::less, is there a better choice?
-    });
+    // Most similar first.
+    schools.sort_by(|(sim1, _), (sim2, _)| sim2.total_cmp(sim1));
 
-    Ok(schools
-        .into_iter()
-        .rev()
-        .map(|(_, school)| school)
-        .collect())
+    Ok(schools.into_iter().map(|(_, school)| school).collect())
 }
 
 /// Merge `other` into `into`: re-point every registration from `other` onto `into`, then

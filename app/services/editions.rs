@@ -24,7 +24,7 @@ pub async fn get_edition(id: i32, db: &impl ConnectionTrait) -> AppResult<editio
     edition::Entity::find_by_id(id)
         .one(db)
         .await?
-        .ok_or(AppError::NotFound("Edition does not exists".into()))
+        .ok_or(AppError::NotFound("Edition does not exist".into()))
 }
 
 pub async fn active_edition(db: &impl ConnectionTrait) -> AppResult<edition::Model> {
@@ -90,10 +90,12 @@ pub async fn statistics(
         }
     }
 
+    let mut registrations: Vec<RegistrationsForDay> = registrations_per_day.into_values().collect();
+    registrations.sort_by_key(|day| day.day);
     Ok(EditionStatistics {
         rounds,
         students,
-        registrations: registrations_per_day.into_values().collect(),
+        registrations,
     })
 }
 
