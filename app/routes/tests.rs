@@ -129,7 +129,7 @@ async fn admin_routes_require_auth_and_role() {
             })),
         )
         .await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(status, StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]
@@ -290,6 +290,10 @@ async fn frontend_fallback_serves_spa_but_not_for_api() {
         client.get_text("/assets/app.js").await,
         (StatusCode::OK, "console.log(1)".to_owned())
     );
+    // a missing static file (stale bundle hash) is a 404, not the SPA
+    let (status, body) = client.get_text("/assets/index-OLDHASH.js").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!body.contains("spa"), "{body}");
     // the API keeps working and unknown API paths stay a JSON 404
     let (status, body) = client.get_text("/api/edition").await;
     assert_eq!(status, StatusCode::OK);

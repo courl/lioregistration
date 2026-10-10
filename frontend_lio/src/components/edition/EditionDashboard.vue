@@ -93,8 +93,9 @@ const state = computed<(typeof TABS)[number]>({
   <template v-else>
     <UEmpty
       icon="i-lucide-triangle-alert"
-      title="No implemented"
-      description="It looks like you are accessing a page that has not yet been implemented."
+      title="Not implemented"
+      description="This view has not been implemented yet."
     />
+    <JsonDump :value="edition" />
   </template>
 </template>

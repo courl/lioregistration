@@ -1,17 +1,18 @@
 <script setup lang="ts">
 import { computed } from "vue"
 
-import type { RegistrationDetails } from "@/types/registration.js"
+import type { RegistrationDetails } from "@/types/registration.ts"
+
+import { useAuth } from "@/composables/api.ts"
 
 const props = defineProps<{
   registration: RegistrationDetails
-  credentialsAvailable?: boolean
 }>()
 const emit = defineEmits<{
   assignCredentials: []
   unassignCredentials: []
 }>()
-
+const auth = useAuth()
 const genderIcon = computed(() => {
   switch (props.registration.gender) {
     case "female": {
@@ -98,7 +99,10 @@ const genderIcon = computed(() => {
           />
           {{ registration.first_contact_source }}
         </div>
-        <div class="flex items-center gap-2 -mt-2">
+        <div
+          v-if="registration.first_contact_other"
+          class="flex items-center gap-2 -mt-2"
+        >
           <div class="size-4 shrink-0" />
           <span class="text-muted">{{
             registration.first_contact_other ?? ""
@@ -119,7 +123,7 @@ const genderIcon = computed(() => {
                   class="size-4 shrink-0 text-dimmed"
                 />
                 <span class="font-mono">{{
-                  registration.credentials?.username
+                  registration.credentials.username
                 }}</span>
               </div>
               <div class="flex items-center gap-2">
@@ -128,11 +132,12 @@ const genderIcon = computed(() => {
                   class="size-4 shrink-0 text-dimmed"
                 />
                 <span class="font-mono">
-                  {{ registration.credentials?.password }}</span
+                  {{ registration.credentials.password }}</span
                 >
               </div>
             </div>
             <UButton
+              v-if="auth.isAdmin"
               size="xs"
               icon="i-lucide-user-key"
               variant="ghost"
@@ -144,28 +149,24 @@ const genderIcon = computed(() => {
         </template>
         <template v-else>
           <UAlert
-            v-if="credentialsAvailable"
             variant="outline"
             icon="i-lucide-triangle-alert"
             title="No assigned credentials"
-            description="There are no credentials that have been assigned to this user. This can happen if the pool has been depleated."
+            description="No credentials have been assigned to this registration. This can happen if the pool was empty."
             orientation="horizontal"
-            :actions="[
-              {
-                icon: 'i-lucide-user-key',
-                label: 'Assign',
-                onClick: () => {
-                  emit('assignCredentials')
-                },
-              },
-            ]"
-          />
-          <UAlert
-            v-else
-            variant="subtle"
-            icon="i-lucide-triangle-alert"
-            title="No free credentials"
-            description="The credentials pool for this edition is empty."
+            :actions="
+              auth.isAdmin
+                ? [
+                    {
+                      icon: 'i-lucide-user-key',
+                      label: 'Assign',
+                      onClick: () => {
+                        emit('assignCredentials')
+                      },
+                    },
+                  ]
+                : []
+            "
           />
         </template>
       </section>

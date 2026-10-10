@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { FormSubmitEvent } from "@nuxt/ui"
 
-import { onMounted, reactive, useTemplateRef, watch } from "vue"
+import { FetchError } from "ofetch"
+import { onMounted, reactive, watch } from "vue"
 import { useRouter } from "vue-router"
 import * as z from "zod"
 
@@ -28,24 +29,26 @@ watch(
 
 const schema = z.object({
   email: z.email("Email is required"),
-  password: z.string("Password is required"),
+  password: z.string("Password is required").min(1, "Password is required"),
 })
 
 export type Schema = z.output<typeof schema>
 
 const state = reactive<Partial<Schema>>({})
-const form = useTemplateRef("form")
 
 async function onSubmit(event: FormSubmitEvent<Schema>) {
   try {
     await auth.login(event.data.email, event.data.password)
   } catch (error) {
-    console.error(error)
-    toast.add({
-      title: "Login failed",
-      description: "Invalid credentials",
-      icon: "i-lucide-triangle-alert",
-    })
+    // Other failures (rate limit, server errors) are toasted by the API client
+    if (error instanceof FetchError && error.status === 401) {
+      toast.add({
+        title: "Login failed",
+        description: "Invalid credentials",
+        icon: "i-lucide-triangle-alert",
+        color: "error",
+      })
+    }
     state.password = undefined
   }
 }
@@ -53,29 +56,39 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
 
 <template>
   <div class="flex justify-center items-center w-full h-screen">
-    <UCard title="Login" :ui="{ footer: 'justify-end flex' }">
+    <UCard title="Login" class="w-full max-w-sm">
       <UForm
-        ref="form"
         :schema="schema"
         :state="state"
         class="space-y-4"
         @submit="onSubmit"
       >
         <UFormField label="Email" name="email">
-          <UInput v-model="state.email" />
+          <UInput
+            v-model="state.email"
+            type="email"
+            autocomplete="username"
+            class="w-full"
+          />
         </UFormField>
         <UFormField label="Password" name="password">
-          <UInput v-model="state.password" type="password" />
+          <UInput
+            v-model="state.password"
+            type="password"
+            autocomplete="current-password"
+            class="w-full"
+          />
         </UFormField>
+        <div class="flex justify-end">
+          <UButton
+            type="submit"
+            label="Login"
+            color="primary"
+            variant="subtle"
+            :loading="auth.pending"
+          />
+        </div>
       </UForm>
-      <template #footer>
-        <UButton
-          label="Login"
-          color="primary"
-          variant="subtle"
-          @click="form?.submit()"
-        />
-      </template>
     </UCard>
   </div>
 </template>

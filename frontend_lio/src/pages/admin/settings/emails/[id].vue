@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { CalendarDate as CDate } from "@internationalized/date"
-import { reactive, ref, watch } from "vue"
+import { computed, reactive, ref, watch } from "vue"
 
 import type {
   EmailPreview,
@@ -8,13 +7,15 @@ import type {
   EmailTemplateId,
 } from "@/types/email.ts"
 
+import { useConfirmDialog } from "@/composables/use-confirm-dialog.ts"
 import { useAttachments } from "@/composables/use-email-attachment.ts"
 import { useEmailTemplate } from "@/composables/use-email.ts"
 import { useRouteId } from "@/composables/use-route-id.ts"
-import CalendarDate from "@/types/calendar-date"
+import CalendarDate from "@/types/calendar-date.ts"
 
 const id = useRouteId<EmailTemplateId>()
-const { email, previewEmailTemplate, updateEmailTemplate } =
+const confirm = useConfirmDialog()
+const { email, loading, previewEmailTemplate, updateEmailTemplate } =
   useEmailTemplate(id)
 const { attachments, createAttachment, updateAttachment, deleteAttachment } =
   useAttachments(id)
@@ -47,17 +48,45 @@ const instance_context: EmailPreviewRequest["instance_context"] = reactive({
   school: "Lycée des Informaticians",
 })
 
-watch(email, async (newEmail) => {
-  if (!newEmail) {
+const previewLoading = ref(false)
+
+async function refreshPreview() {
+  if (!email.value) {
     preview.value = { attachments: [], error: "Not computed yet" }
     return
   }
-  preview.value = await previewEmailTemplate({
-    body: body.value,
-    global_context,
-    instance_context,
-  })
-})
+  previewLoading.value = true
+  try {
+    preview.value = await previewEmailTemplate({
+      body: body.value,
+      global_context,
+      instance_context,
+    })
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+// The preview renders the saved template, refresh it on load and save
+watch(email, refreshPreview)
+
+const attachmentPreview = computed(() =>
+  previewTab.value.startsWith("attachment-")
+    ? preview.value.attachments.at(Number(previewTab.value.slice(11)))
+    : undefined,
+)
+
+async function removeAttachment(index: number) {
+  const attachment = attachments.value[index]
+  if (
+    await confirm({
+      title: "Delete attachment",
+      description: `Are you sure you want to delete '${attachment.name}'?`,
+    })
+  ) {
+    await deleteAttachment(attachment)
+  }
+}
 
 watch(
   () => email.value?.template_type,
@@ -88,12 +117,27 @@ async function save() {
     await updateEmailTemplate(email.value)
   }
 }
+
+function setContextDate(
+  key: "round_starts_at" | "round_ends_at",
+  date: Parameters<typeof CalendarDate.fromDateValue>[0],
+) {
+  global_context[key] = CalendarDate.fromDateValue(date) ?? new CalendarDate({})
+}
+
+const TEMPLATE_TYPES = ["round", "registration", "error"] as const
+
+function setTemplateType(value: unknown) {
+  if (!email.value) return
+  email.value.template_type =
+    TEMPLATE_TYPES.find((type) => type === value) ?? null
+}
 </script>
 
 <template>
   <PageHeader :title="email?.name || 'Unknown Template'">
     <template #header>
-      <UButton icon="i-lucide-save" @click="save"> Save </UButton>
+      <UButton v-if="email" icon="i-lucide-save" @click="save"> Save </UButton>
     </template>
   </PageHeader>
   <div v-if="email" class="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -121,17 +165,17 @@ async function save() {
           </UFormField>
           <UFormField label="Template Type" class="w-full">
             <USelect
-              v-model="email.template_type"
+              :model-value="email.template_type ?? 'unset'"
               class="w-full"
               :items="[
-                ['round', 'registration', 'error'],
                 [
-                  {
-                    label: 'Unset the template',
-                    value: undefined,
-                  },
+                  { label: 'round', value: 'round' },
+                  { label: 'registration', value: 'registration' },
+                  { label: 'error', value: 'error' },
                 ],
+                [{ label: 'Unset the template', value: 'unset' }],
               ]"
+              @update:model-value="setTemplateType"
             />
           </UFormField>
         </div>
@@ -165,15 +209,20 @@ async function save() {
                   color="error"
                   variant="ghost"
                   size="xs"
-                  @click="
-                    async () => await deleteAttachment(attachments[item.idx])
-                  "
+                  aria-label="Delete attachment"
+                  @click="async () => await removeAttachment(item.idx)"
                 />
               </div>
             </div>
           </template>
         </UAccordion>
-        <UButton icon="i-lucide-plus" @click="createAttachment" />
+        <UButton
+          icon="i-lucide-plus"
+          label="Add attachment"
+          variant="subtle"
+          class="mt-2"
+          @click="createAttachment"
+        />
       </template>
       <template v-else-if="tab === 'preview'">
         <div class="space-y-4">
@@ -205,19 +254,9 @@ async function save() {
                 <UInputDate
                   :range="false"
                   class="w-full"
-                  :model-value="
-                    new CDate(
-                      global_context.round_starts_at.year,
-                      global_context.round_starts_at.month,
-                      global_context.round_starts_at.day,
-                    )
-                  "
+                  :model-value="global_context.round_starts_at.toDateValue()"
                   @update:model-value="
-                    (value) => {
-                      global_context.round_starts_at = value
-                        ? new CalendarDate({ date: value.toDate('UTC') })
-                        : new CalendarDate({})
-                    }
+                    (date) => setContextDate('round_starts_at', date)
                   "
                 />
               </UFormField>
@@ -225,19 +264,9 @@ async function save() {
                 <UInputDate
                   :range="false"
                   class="w-full"
-                  :model-value="
-                    new CDate(
-                      global_context.round_ends_at.year,
-                      global_context.round_ends_at.month,
-                      global_context.round_ends_at.day,
-                    )
-                  "
+                  :model-value="global_context.round_ends_at.toDateValue()"
                   @update:model-value="
-                    (value) => {
-                      global_context.round_ends_at = value
-                        ? new CalendarDate({ date: value.toDate('UTC') })
-                        : new CalendarDate({})
-                    }
+                    (date) => setContextDate('round_ends_at', date)
                   "
                 />
               </UFormField>
@@ -301,6 +330,15 @@ async function save() {
               </UFormField>
             </div>
           </section>
+          <div class="flex justify-end">
+            <UButton
+              icon="i-lucide-refresh-cw"
+              label="Refresh preview"
+              variant="subtle"
+              :loading="previewLoading"
+              @click="refreshPreview"
+            />
+          </div>
         </div>
       </template>
     </div>
@@ -328,44 +366,36 @@ async function save() {
               statusMessage: 'Cannot load preview',
               message: preview.error,
             }"
+            :clear="false"
           />
         </template>
-        <template v-else-if="previewTab.startsWith('attachment-')">
+        <template v-else-if="attachmentPreview">
           <PdfViewer
-            v-if="
-              preview.attachments[parseInt(previewTab.slice(11))].data_base64
-            "
-            :src="
-              preview.attachments[parseInt(previewTab.slice(11))].data_base64!
-            "
-            :filename="preview.attachments[parseInt(previewTab.slice(11))].name"
+            v-if="attachmentPreview.data_base64"
+            :src="attachmentPreview.data_base64"
           />
           <UError
-            v-if="preview.attachments[parseInt(previewTab.slice(11))].error"
+            v-if="attachmentPreview.error"
             :error="{
               statusMessage: 'Cannot load preview',
-              message: preview.error,
+              message: attachmentPreview.error,
             }"
+            :clear="false"
           />
         </template>
       </div>
     </div>
   </div>
   <UEmpty
-    v-else
+    v-else-if="!loading"
     icon="i-lucide-mail"
     title="Email template not found"
-    description="It looks like this template does not exist"
+    description="It looks like this template does not exist."
     :actions="[
       {
         icon: 'i-lucide-circle-arrow-right',
         label: 'Templates',
-      },
-      {
-        icon: 'i-lucide-refresh-cw',
-        label: 'Refresh',
-        color: 'neutral',
-        variant: 'subtle',
+        to: '/admin/settings/emails',
       },
     ]"
   />

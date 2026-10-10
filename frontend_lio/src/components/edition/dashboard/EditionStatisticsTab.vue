@@ -4,6 +4,7 @@ import { AreaChart, CurveType, LegendPosition } from "vue-chrts"
 
 import type { Edition } from "@/types/edition.ts"
 
+import { useCredentials } from "@/composables/use-credentials.ts"
 import { useEditionStatistics } from "@/composables/use-edition-statistics.ts"
 import CalendarDate from "@/types/calendar-date.ts"
 
@@ -12,6 +13,11 @@ const props = defineProps<{
 }>()
 
 const { statistics } = useEditionStatistics(() => props.edition.id)
+const { credentials } = useCredentials(() => props.edition.id)
+
+const freeCredentials = computed(
+  () => credentials.value.filter((x) => x.registration === null).length,
+)
 
 const accumulated = ref<boolean>(false)
 
@@ -62,11 +68,11 @@ const data = computed(() => {
 })
 
 const remainingReviews = computed(() => {
-  const datum = data.value.at(-1)
-  if (!datum) {
-    return -1
+  let remaining = 0
+  for (const x of statistics.value?.registrations ?? []) {
+    remaining += x.new - x.reviewed
   }
-  return datum.registrations - datum.reviewed
+  return remaining
 })
 
 const xFormatter = (tick: number): string => {
@@ -86,24 +92,31 @@ const categories = {
 </script>
 
 <template>
-  <template v-if="statistics === undefined"> Loading ... </template>
+  <div v-if="statistics === undefined" class="flex justify-center p-8">
+    <UIcon name="i-lucide-loader-circle" class="size-6 animate-spin" />
+  </div>
   <template v-else>
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-      <RouterCard to="/admin?tab=registrations&state=pending">
+      <RouterCard :to="{ query: { tab: 'registrations', state: 'pending' } }">
         <div class="text-3xl font-bold text-primary">
           {{ remainingReviews }}
         </div>
         <div class="text-muted text-sm mt-1">Pending reviews</div>
       </RouterCard>
-      <RouterCard to="/admin?tab=credentials">
-        <div class="text-3xl font-bold text-error">tbd</div>
+      <RouterCard :to="{ query: { tab: 'credentials' } }">
+        <div
+          class="text-3xl font-bold"
+          :class="freeCredentials === 0 ? 'text-error' : ''"
+        >
+          {{ freeCredentials }}
+        </div>
         <div class="text-muted text-sm mt-1">Remaining Credentials</div>
       </RouterCard>
-      <RouterCard to="/admin?tab=participants">
+      <RouterCard :to="{ query: { tab: 'participants' } }">
         <div class="text-3xl font-bold">{{ statistics.students }}</div>
         <div class="text-muted text-sm mt-1">Participants</div>
       </RouterCard>
-      <RouterCard to="/admin?tab=rounds">
+      <RouterCard :to="{ query: { tab: 'rounds' } }">
         <div class="text-3xl font-bold">{{ statistics.rounds }}</div>
         <div class="text-muted text-sm mt-1">Rounds</div>
       </RouterCard>

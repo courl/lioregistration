@@ -12,7 +12,7 @@ import type {
 import { api } from "@/composables/api.ts"
 
 export const useEmails = (
-  filter: EmailTemplate["template_type"] | undefined,
+  filter?: NonNullable<EmailTemplate["template_type"]>,
 ) => {
   const loading = ref<boolean>(false)
   const items = ref<EmailTemplate[]>([])

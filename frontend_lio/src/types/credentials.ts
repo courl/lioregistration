@@ -7,9 +7,9 @@ export interface Credentials {
   id: CredentialId
   username: string
   password: string
-  registration?: {
+  registration: {
     id: RegistrationId
     given_name: string
     family_name: string
-  }
+  } | null
 }

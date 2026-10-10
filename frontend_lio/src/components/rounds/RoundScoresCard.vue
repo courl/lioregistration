@@ -7,6 +7,7 @@ import type { ParticipationData } from "@/components/rounds/modals/RoundParticip
 import type { Participant, RoundDetails, TaskId } from "@/types/round.ts"
 
 import ParticipationBadge from "@/components/rounds/ParticipationBadge.vue"
+import { useAuth } from "@/composables/api.ts"
 import { useRoundBulkScoreModal } from "@/composables/use-round-bulk-score-modal.ts"
 import { useRoundParticipationModal } from "@/composables/use-round-participation-modal.ts"
 
@@ -17,6 +18,7 @@ const emit = defineEmits<{
     { credentials_username: string; task_scores: [TaskId, number][] }[],
   ]
 }>()
+const auth = useAuth()
 const participationEditor = useRoundParticipationModal()
 const bulkScoreEditor = useRoundBulkScoreModal()
 
@@ -35,6 +37,7 @@ const columns: TableColumn<Participant>[] = [
 ]
 
 async function editParticipation(participant: Participant) {
+  if (!auth.isAdmin) return
   const result = await participationEditor({
     participant,
     tasks: props.round.tasks,
@@ -46,16 +49,7 @@ async function editParticipation(participant: Participant) {
 async function editScores() {
   const result = await bulkScoreEditor({ tasks: props.round.tasks })
   if (result) {
-    const tasks = Object.fromEntries(
-      props.round.tasks.map((x) => [x.name, x.id]),
-    )
-    emit(
-      "bulkUpdateScore",
-      result.map((x) => ({
-        ...x,
-        task_scores: x.task_scores.map((x) => [tasks[x[0]], x[1]]),
-      })),
-    )
+    emit("bulkUpdateScore", result)
   }
 }
 </script>
@@ -65,7 +59,11 @@ async function editScores() {
     <template #header>
       <div class="flex items-center justify-between">
         <span class="font-bold">Scores</span>
-        <UButton size="xs" icon="i-lucide-upload" @click="editScores"
+        <UButton
+          v-if="auth.isAdmin"
+          size="xs"
+          icon="i-lucide-upload"
+          @click="editScores"
           >Add scores</UButton
         >
       </div>

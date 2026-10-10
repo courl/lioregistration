@@ -2,8 +2,8 @@
 #![allow(clippy::derive_partial_eq_without_eq)]
 
 use sea_orm::ActiveValue;
-use unicode_normalization::UnicodeNormalization;
 use sea_orm::entity::prelude::*;
+use unicode_normalization::UnicodeNormalization;
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -53,7 +53,7 @@ pub fn normalize_name(name: &str) -> String {
 /// ("Lycée A" == "  lycée   a"). Unicode-aware, unlike SQLite's `LOWER`.
 #[must_use]
 pub fn name_key(name: &str) -> String {
-    normalize_name(name).to_lowercase()
+    crate::utils::search::search_key(name)
 }
 
 #[cfg(test)]

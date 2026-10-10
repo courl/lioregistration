@@ -1,8 +1,9 @@
+import { FetchError } from "ofetch"
 import { type MaybeRefOrGetter, onMounted, ref, toValue, watch } from "vue"
 
 import type { Edition, EditionId, NewEdition } from "@/types/edition.ts"
 
-import { api } from "@/composables/api.ts"
+import { api, apiWith404Passthrough } from "@/composables/api.ts"
 
 export const useEditions = () => {
   const loading = ref<boolean>(false)
@@ -49,10 +50,24 @@ export const useEdition = (
   const reload = async (id: EditionId | "active") => {
     loading.value = true
     try {
-      item.value = await api<Edition>(`/admin/editions/${id.toString()}`)
+      item.value = await apiWith404Passthrough<Edition>(
+        `/admin/editions/${id.toString()}`,
+      )
+    } catch (error_) {
+      // No (active) edition is a normal state, rendered by the page
+      if (error_ instanceof FetchError && error_.status === 404) {
+        item.value = undefined
+        return
+      }
+      throw error_
     } finally {
       loading.value = false
     }
+  }
+
+  const refresh = async () => {
+    const id_ = toValue(id)
+    if (id_ !== undefined) await reload(id_)
   }
 
   watch(
@@ -67,5 +82,5 @@ export const useEdition = (
     { immediate: true },
   )
 
-  return { edition: item, loading, error }
+  return { edition: item, loading, error, refresh }
 }

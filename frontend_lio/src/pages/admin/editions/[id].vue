@@ -2,33 +2,25 @@
 import type { EditionId } from "@/types/edition.ts"
 
 import { useEdition } from "@/composables/use-edition.ts"
-import { useRouteId } from "@/composables/use-route-id.js"
+import { useRouteId } from "@/composables/use-route-id.ts"
 
 const id = useRouteId<EditionId>()
-const { edition } = useEdition(id)
+const { edition, loading } = useEdition(id)
 </script>
 
 <template>
-  <template v-if="edition === undefined">
-    <UEmpty
-      icon="i-lucide-book-open"
-      title="No active edition"
-      description="It looks like there is no active edition. Declare an edition as active to see the dashboard."
-      :actions="[
-        {
-          icon: 'i-lucide-circle-arrow-right',
-          label: 'Editions',
-        },
-        {
-          icon: 'i-lucide-refresh-cw',
-          label: 'Refresh',
-          color: 'neutral',
-          variant: 'subtle',
-        },
-      ]"
-    />
-  </template>
-  <template v-else>
-    <EditionDashboard :edition="edition" />
-  </template>
+  <EditionDashboard v-if="edition" :edition="edition" />
+  <UEmpty
+    v-else-if="!loading"
+    icon="i-lucide-book-open"
+    title="Edition not found"
+    description="This edition does not exist."
+    :actions="[
+      {
+        icon: 'i-lucide-circle-arrow-right',
+        label: 'Editions',
+        to: '/admin/editions',
+      },
+    ]"
+  />
 </template>

@@ -8,12 +8,18 @@ export const useStudents = (query: MaybeRefOrGetter<string>) => {
   const loading = ref<boolean>(false)
   const items = ref<Student[]>([])
 
+  let request = 0
   const reload = async (q: string) => {
+    const current = ++request
     loading.value = true
     try {
-      items.value = await api<Student[]>(`/admin/students?query=${q}`)
+      const result = await api<Student[]>(
+        `/admin/students?query=${encodeURIComponent(q)}`,
+      )
+      // Ignore responses overtaken by a newer query
+      if (current === request) items.value = result
     } finally {
-      loading.value = false
+      if (current === request) loading.value = false
     }
   }
 

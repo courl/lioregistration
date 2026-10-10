@@ -11,7 +11,7 @@ pub struct Auth {
 impl Auth {
     pub fn verify(&self, roles: Vec<admin_user::UserRole>) -> AppResult<()> {
         if !roles.contains(&self.user.role) {
-            Err(AppError::Unauthorized)
+            Err(AppError::Forbidden)
         } else {
             Ok(())
         }

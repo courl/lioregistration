@@ -5,8 +5,8 @@
       statusMessage: 'Page not found',
       message: 'The page you are looking for does not exist.',
     }"
-  >
-  </UError>
+    :clear="{ label: 'Back home', to: '/' }"
+  />
 </template>
 
 <route>

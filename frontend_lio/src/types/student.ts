@@ -1,6 +1,8 @@
 import type { Badge } from "@/types/badge.ts"
+import type CalendarDate from "@/types/calendar-date.ts"
 import type { Edition } from "@/types/edition.ts"
 import type { Registration } from "@/types/registration.ts"
+import type { ParticipationState } from "@/types/round.ts"
 
 export type StudentId = Badge<number, "student_id">
 
@@ -9,7 +11,7 @@ export interface Student {
   given_name: string
   family_name: string
   email: string
-  birthdate: Date
+  birthdate: CalendarDate
   awards: {
     round: string
     award: "gold" | "silver" | "bronze" | "honorableMention"
@@ -24,7 +26,7 @@ export interface StudentDetails extends Student {
     rounds: {
       id: number
       name: string
-      state: "accepted" | "invited" | "declined" | "noshow"
+      state: ParticipationState
       scores: {
         task: string
         score: number

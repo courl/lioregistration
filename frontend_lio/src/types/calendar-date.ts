@@ -1,3 +1,5 @@
+import { CalendarDate as DateValue } from "@internationalized/date"
+
 const pad = (n: number, length: number) => n.toString().padStart(length, "0")
 
 export default class CalendarDate {
@@ -35,6 +37,23 @@ export default class CalendarDate {
     })
   }
 
+  /** Converts from the date type emitted by Nuxt UI date inputs. */
+  static fromDateValue(
+    date: { year: number; month: number; day: number } | null | undefined,
+  ): CalendarDate | undefined {
+    if (!date) return undefined
+    return new CalendarDate({
+      year: date.year,
+      month: date.month,
+      day: date.day,
+    })
+  }
+
+  /** Converts to the date type used by Nuxt UI date inputs. */
+  toDateValue(): DateValue {
+    return new DateValue(this.year, this.month, this.day)
+  }
+
   toJSON(): string {
     return `${pad(this.year, 4)}-${pad(this.month, 2)}-${pad(this.day, 2)}`
   }
@@ -58,7 +77,8 @@ export default class CalendarDate {
   }
 
   static minmax(dates: CalendarDate[]): [CalendarDate, CalendarDate] {
-    const toNumber = (x: CalendarDate) => x.year * 1000 + x.month * 10 + x.day
+    const toNumber = (x: CalendarDate) =>
+      x.year * 10_000 + x.month * 100 + x.day
     if (dates.length === 0) {
       return [new CalendarDate({}), new CalendarDate({})]
     }
@@ -80,10 +100,10 @@ export default class CalendarDate {
       return []
     }
     const days =
-      Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1
+      Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1
 
     const range: CalendarDate[] = []
-    for (let index = 0; index <= days; ++index) {
+    for (let index = 0; index < days; ++index) {
       range.push(start.addDays(index))
     }
     return range

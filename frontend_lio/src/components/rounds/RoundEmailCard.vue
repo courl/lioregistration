@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref } from "vue"
 
-import { useConfirmDialog } from "@/composables/use-confirm-dialog.js"
-import { useEmails } from "@/composables/use-email"
-import { type EmailTemplateId } from "@/types/email"
+import { useConfirmDialog } from "@/composables/use-confirm-dialog.ts"
+import { useEmails } from "@/composables/use-email.ts"
+import { type EmailTemplateId } from "@/types/email.ts"
 
 const emit = defineEmits<{
   sendMail: [email: EmailTemplateId, headline: string, body: string]

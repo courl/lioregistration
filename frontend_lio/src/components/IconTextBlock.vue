@@ -8,13 +8,12 @@ defineProps<{ items: { icon: string; text: string; value?: string }[] }>()
     <template v-for="(item, i) in items" :key="`icon-label-${i}`">
       <span
         :class="[
-          'inline-flex',
-          'items-center',
-          'gap-1.5',
-          'cursor-default',
-          ...(item.value
-            ? [model === item.value ? 'text-primary' : 'hover:text-white']
-            : []),
+          'inline-flex items-center gap-1.5',
+          item.value === undefined
+            ? 'cursor-default'
+            : model === item.value
+              ? 'cursor-pointer text-primary'
+              : 'cursor-pointer hover:text-highlighted',
         ]"
         @click="() => (item.value ? (model = item.value) : undefined)"
       >

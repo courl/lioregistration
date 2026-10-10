@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import type { Student } from "@/types/student.js"
+import type { Student } from "@/types/student.ts"
 
 import StudentAwardsBlock from "@/components/students/StudentAwardsBlock.vue"
+import { useAuth } from "@/composables/api.ts"
 
 defineProps<{ student: Student; match: number; matched?: boolean }>()
 const emit = defineEmits<{ linkAndValidate: [Student] }>()
+const auth = useAuth()
 </script>
 
 <template>
@@ -15,7 +17,7 @@ const emit = defineEmits<{ linkAndValidate: [Student] }>()
   >
     <div class="flex items-center justify-between gap-3">
       <div class="min-w-0">
-        <p class="font-medium text-highlighted truncated">
+        <p class="font-medium text-highlighted truncate">
           <RouterLink
             :to="`/admin/students/${student.id}`"
             class="hover:text-primary"
@@ -29,7 +31,7 @@ const emit = defineEmits<{ linkAndValidate: [Student] }>()
       </div>
 
       <UButton
-        v-if="!matched"
+        v-if="auth.isAdmin && !matched"
         variant="ghost"
         size="sm"
         icon="i-lucide-link"

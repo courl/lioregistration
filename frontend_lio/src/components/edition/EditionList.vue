@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import type { Edition } from "@/types/edition.ts"
 
-import { useConfirmDialog } from "@/composables/use-confirm-dialog.js"
+import { useAuth } from "@/composables/api.ts"
+import { useConfirmDialog } from "@/composables/use-confirm-dialog.ts"
 
 defineProps<{ editions: Edition[] }>()
 const emit = defineEmits<{
-  deleteEdition: [edition: Edition]
-  editEdition: [edition: Edition]
   activateEdition: [edition: Edition]
 }>()
+const auth = useAuth()
 const confirm = useConfirmDialog()
 
 async function handleActivate(edition: Edition) {
@@ -19,17 +19,6 @@ async function handleActivate(edition: Edition) {
     })
   ) {
     emit("activateEdition", edition)
-  }
-}
-
-async function handleDelete(edition: Edition) {
-  if (
-    await confirm({
-      title: "Delete edition",
-      description: `Are you sure you want to delete '${edition.name}'?`,
-    })
-  ) {
-    emit("deleteEdition", edition)
   }
 }
 </script>
@@ -59,44 +48,15 @@ async function handleDelete(edition: Edition) {
             ]"
           />
         </div>
-        <UFieldGroup>
-          <UButton
-            variant="ghost"
-            size="sm"
-            icon="i-lucide-trash"
-            color="error"
-            @click="
-              async (e) => {
-                e.preventDefault()
-                await handleDelete(edition)
-              }
-            "
-          />
-          <UButton
-            variant="ghost"
-            size="sm"
-            icon="i-lucide-pencil"
-            @click="
-              async (e) => {
-                e.preventDefault()
-                emit('editEdition', edition)
-              }
-            "
-          />
-          <UButton
-            v-if="!edition.active"
-            variant="ghost"
-            size="sm"
-            icon="i-lucide-circle-check"
-            color="success"
-            @click="
-              async (e) => {
-                e.preventDefault()
-                await handleActivate(edition)
-              }
-            "
-          />
-        </UFieldGroup>
+        <UButton
+          v-if="auth.isAdmin && !edition.active"
+          variant="ghost"
+          size="sm"
+          icon="i-lucide-circle-check"
+          color="success"
+          aria-label="Activate edition"
+          @click.prevent="async () => await handleActivate(edition)"
+        />
       </div>
     </RouterCard>
   </div>

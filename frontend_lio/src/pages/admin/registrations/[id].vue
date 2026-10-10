@@ -1,18 +1,16 @@
 <script setup lang="ts">
 import { ref } from "vue"
-import { useRouter } from "vue-router"
 
 import type { RegistrationId, ReviewStatus } from "@/types/registration.ts"
 import type { Student, StudentId } from "@/types/student.ts"
 
 import { useRegistration } from "@/composables/use-registration.ts"
-import { useRouteId } from "@/composables/use-route-id.js"
-
-const router = useRouter()
+import { useRouteId } from "@/composables/use-route-id.ts"
 
 const id = useRouteId<RegistrationId>()
 const {
   registration,
+  loading,
   assignCredentials,
   unassignCredentials,
   linkAndValidate,
@@ -22,6 +20,22 @@ const {
 } = useRegistration(id)
 
 const match = ref<[number, Student] | undefined>()
+
+async function processLinkAndValidate(student: Student | undefined) {
+  await linkAndValidate(student)
+  match.value = undefined
+}
+
+let candidateRequest = 0
+async function selectStudent(studentId: StudentId | undefined) {
+  const current = ++candidateRequest
+  // Hide the previous candidate at once, so it can't be linked while loading
+  match.value = undefined
+  if (studentId === undefined) return
+  const candidate = await loadCandidate(studentId)
+  // Ignore responses overtaken by a newer id
+  if (current === candidateRequest) match.value = candidate
+}
 
 const reviewStatusColor = (
   status: ReviewStatus,
@@ -62,12 +76,9 @@ const reviewStatusColor = (
         <RegistrationMatchingCard
           :registration="registration"
           :match="match"
-          @select-student="
-            async (studentId: StudentId | undefined) =>
-              (match = studentId && (await loadCandidate(studentId)))
-          "
+          @select-student="selectStudent"
           @refuse="refuse"
-          @link-and-validate="linkAndValidate"
+          @link-and-validate="processLinkAndValidate"
           @unlink="unlink"
         />
       </div>
@@ -75,12 +86,12 @@ const reviewStatusColor = (
   </div>
 
   <UError
-    v-else
+    v-else-if="!loading"
     :error="{
       status: 404,
       statusMessage: 'Registration not found',
       message: 'This registration does not exist.',
     }"
-    @clear="router.push('/admin/registrations')"
+    :clear="{ label: 'Back to dashboard', to: '/admin' }"
   />
 </template>
