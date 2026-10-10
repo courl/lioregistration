@@ -35,7 +35,9 @@ function reviveDates(key: string, value: unknown) {
 
 const createAPI = (toastOn404: boolean) => {
   return ofetch.create({
-    baseURL: import.meta.env.VITE_API_BASE_URL as string,
+    // Same origin by default: the backend serves the SPA in production, Vite proxies /api in dev.
+    baseURL:
+      (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "/api",
     credentials: "include",
     // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     parseResponse: (txt) => (txt ? JSON.parse(txt, reviveDates) : txt),

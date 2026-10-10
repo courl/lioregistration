@@ -24,7 +24,7 @@ axum = { version = "0.8", features = ["macros", "multipart"] }
 axum-extra = { version = "0.12", features = ["typed-header", "cookie", "query"] }
 time = "0.3"
 tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
 argon2 = "0.5"
 dashmap = "6"
 clap = { version="4", features = ["derive"] }
@@ -36,3 +36,4 @@ typst = "0.15.1"
 typst-pdf = "0.15.1"
 base64 = "0.23.1"
 typst-assets = { version = "0.15.1", features = ["fonts"] }
+unicode-normalization = "0.1.25"

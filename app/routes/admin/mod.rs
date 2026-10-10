@@ -14,7 +14,7 @@ mod student;
 fn auth() -> Router<AppState> {
     Router::new()
         .route("/login", post(auth::login))
-        .route("/logout", get(auth::logout))
+        .route("/logout", post(auth::logout))
         .route("/me", get(auth::me))
 }
 

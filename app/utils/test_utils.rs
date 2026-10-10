@@ -25,6 +25,22 @@ pub mod tests {
         pub state: AppState,
     }
 
+    /// A directory under the system temp dir, removed on drop so a failing assertion doesn't
+    /// leave fixtures behind.
+    pub struct TempDir(pub PathBuf);
+
+    impl TempDir {
+        pub fn new(prefix: &str) -> Self {
+            Self(std::env::temp_dir().join(format!("{prefix}-{}", std::process::id())))
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     pub async fn setup_test() -> TestApp {
         // `try_init` so the many tests sharing this harness don't panic on the
         // second call to set the global tracing subscriber.
@@ -46,6 +62,7 @@ pub mod tests {
                 rate_limiter: Arc::new(RateLimiter::new(300, Duration::from_secs(60))),
                 strict_rate_limiter: Arc::new(RateLimiter::new(5, Duration::from_secs(3600))),
                 trust_proxy: false,
+                cross_site_frontend: false,
                 token_generator: Arc::new(LoginTokenGenerator::from_secret("secret", db.clone())),
                 email_attachment_ctx: Arc::new(
                     EmailAttachmentContext::create(PathBuf::from("assets")).unwrap(),

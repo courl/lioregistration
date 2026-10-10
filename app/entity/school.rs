@@ -2,6 +2,7 @@
 #![allow(clippy::derive_partial_eq_without_eq)]
 
 use sea_orm::ActiveValue;
+use unicode_normalization::UnicodeNormalization;
 use sea_orm::entity::prelude::*;
 
 #[sea_orm::model]
@@ -18,12 +19,54 @@ pub struct Model {
 
 impl ActiveModelBehavior for ActiveModel {}
 
+impl Model {
+    /// See [`name_key`].
+    #[must_use]
+    pub fn key(&self) -> String {
+        name_key(&self.name)
+    }
+}
+
 impl ActiveModel {
+    /// Stores the name normalized (see [`normalize_name`]).
     #[must_use]
     pub fn create(name: &str) -> Self {
         Self {
-            name: ActiveValue::Set(name.into()),
+            name: ActiveValue::Set(normalize_name(name)),
             ..Default::default()
         }
+    }
+}
+
+/// Display form of a school name: Unicode NFC (so a precomposed "é" and "e" + combining accent
+/// compare equal), trimmed, inner whitespace collapsed to single spaces.
+#[must_use]
+pub fn normalize_name(name: &str) -> String {
+    name.nfc()
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Identity of a school name: two names with the same key are the same school
+/// ("Lycée A" == "  lycée   a"). Unicode-aware, unlike SQLite's `LOWER`.
+#[must_use]
+pub fn name_key(name: &str) -> String {
+    normalize_name(name).to_lowercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalizes_whitespace_and_case() {
+        assert_eq!(normalize_name("  Lycée   A \t"), "Lycée A");
+        assert_eq!(name_key(" LYCÉE  a"), name_key("Lycée A"));
+        assert_ne!(name_key("Lycée A"), name_key("Lycée B"));
+        // precomposed U+00E9 vs "e" + combining acute U+0301
+        assert_eq!(name_key("Lyc\u{e9}e A"), name_key("Lyce\u{301}e A"));
+        assert_eq!(normalize_name("Lyce\u{301}e A"), "Lyc\u{e9}e A");
     }
 }

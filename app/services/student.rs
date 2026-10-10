@@ -1,10 +1,10 @@
 use crate::entity::round_participation::Award;
 use crate::entity::{registration, round, round_participation, student};
 use crate::error::{AppError, AppResult};
+use crate::utils::search::rank_by_similarity;
 use sea_orm::QueryFilter;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait};
 use serde::Serialize;
-use std::cmp::Ordering;
 use std::collections::HashMap;
 
 #[derive(Serialize)]
@@ -96,31 +96,17 @@ pub async fn find_students(
     if query.len() < 2 {
         return list_students(db).await;
     }
-    let mut students = list_students(db)
-        .await?
-        .into_iter()
-        .filter_map(|(student, awards)| {
-            let similarity = (strsim::jaro_winkler(query, student.given_name.as_str())
-                + strsim::jaro_winkler(query, student.family_name.as_str()))
-                / 2.;
-            if similarity > 0.5 {
-                Some((similarity, (student, awards)))
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    // todo: sort by ascending? and remove rev?
-    students.sort_by(|(sim1, _), (sim2, _)| {
-        sim1.partial_cmp(sim2).unwrap_or(Ordering::Less) // todo: here just random ordering::less, is there a better choice?
-    });
-
-    Ok(students.into_iter().rev().map(|(_, data)| data).collect())
+    Ok(rank_by_similarity(
+        list_students(db).await?,
+        |(student, _)| {
+            (strsim::jaro_winkler(query, &student.given_name)
+                + strsim::jaro_winkler(query, &student.family_name))
+                / 2.
+        },
+    ))
 }
 
-/*
- * Returns student_id -> registration
- */
+/// Returns student_id -> registration.
 pub async fn load_registrations(
     edition_id: i32,
     students: Vec<&student::Model>,
