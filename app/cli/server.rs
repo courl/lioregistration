@@ -1,4 +1,5 @@
 use crate::jobs::worker::WorkerSettings;
+use crate::settings::Settings;
 use crate::state::AppState;
 use crate::{jobs, routes};
 use axum::http::{Method, header};
@@ -6,24 +7,20 @@ use std::net::SocketAddr;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
-fn spawn_worker(state: &AppState) {
+fn spawn_worker(state: &AppState, settings: &Settings) {
     let settings = WorkerSettings {
-        admin_email: "admin@lio.lu".into(), // todo: load this from config,
-        sender_email: "noreply@lio.lu".into(),
-        smtp_credentials: None,
-        smtp_server: "".into(),
-        smtp_host: 465,
-        smtp_implicit_tls: true,
-        assets_root: "./assets".into(),
+        admin_email: settings.admin_email.clone(),
+        smtp: settings.smtp.clone(),
     };
+    let ctx = state.email_attachment_ctx.clone();
     let db = state.db.clone();
     tokio::spawn(async move {
-        jobs::worker::Worker::create(&settings, db).run().await;
+        jobs::worker::Worker::create(&settings, ctx, db).run().await;
     });
 }
 
-pub async fn run_server(state: AppState, host: &str, port: u16) -> anyhow::Result<()> {
-    spawn_worker(&state);
+pub async fn run_server(state: AppState, settings: &Settings) -> anyhow::Result<()> {
+    spawn_worker(&state, settings);
 
     let cors = CorsLayer::new()
         // fixme: set proper origins
@@ -48,7 +45,7 @@ pub async fn run_server(state: AppState, host: &str, port: u16) -> anyhow::Resul
         .layer(cors)
         .into_make_service_with_connect_info::<SocketAddr>();
 
-    let addr: SocketAddr = format!("{host}:{port}").parse()?;
+    let addr: SocketAddr = format!("{}:{}", settings.host, settings.port).parse()?;
     tracing::info!("Listening on {addr}");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;

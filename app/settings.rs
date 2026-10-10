@@ -16,9 +16,6 @@ fn default_database_url() -> String {
 fn default_secret_key() -> String {
     "2026-06-05-dev-secret-key-change-in-production".into()
 }
-fn default_from() -> String {
-    "noreply@lio.lu".into()
-}
 fn default_assets_root() -> PathBuf {
     std::env::current_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
@@ -27,11 +24,11 @@ fn default_assets_root() -> PathBuf {
 
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct SmtpSettings {
-    pub host: Option<String>,
-    pub port: Option<u16>,
-    pub username: Option<String>,
-    pub password: Option<String>,
-    #[serde(default = "default_from")]
+    pub host: String,
+    pub port: u16,
+    pub implicit_tls: bool,
+    pub username: String,
+    pub password: String,
     pub from: String,
 }
 
@@ -46,8 +43,8 @@ pub struct Settings {
     #[serde(default = "default_secret_key")]
     pub secret_key: String,
     #[serde(default)]
-    pub smtp: SmtpSettings,
-    pub admin_email: Option<String>,
+    pub smtp: Option<SmtpSettings>,
+    pub admin_email: String,
     #[serde(default = "default_assets_root")]
     pub assets_root: PathBuf,
 }

@@ -3,10 +3,12 @@ use crate::entity::job::JobState;
 use crate::error::{AppError, AppResult};
 use crate::jobs::Job;
 use crate::jobs::send_email::SendEmailProcessor;
+use crate::services::email_attachment::EmailAttachmentContext;
+use crate::settings::SmtpSettings;
 use sea_orm::ColumnTrait;
 use sea_orm::{ActiveModelTrait, ActiveValue, IntoActiveModel, QueryFilter};
 use sea_orm::{DatabaseConnection, EntityTrait, TransactionTrait};
-use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 pub(crate) enum JobResult {
@@ -15,13 +17,8 @@ pub(crate) enum JobResult {
 }
 
 pub struct WorkerSettings {
-    pub sender_email: String,
+    pub smtp: Option<SmtpSettings>,
     pub admin_email: String,
-    pub smtp_server: String,
-    pub smtp_host: u16,
-    pub smtp_implicit_tls: bool,
-    pub smtp_credentials: Option<(String, String)>,
-    pub assets_root: PathBuf,
 }
 
 pub struct Worker {
@@ -30,9 +27,13 @@ pub struct Worker {
 }
 
 impl Worker {
-    pub fn create(settings: &WorkerSettings, db: DatabaseConnection) -> Self {
+    pub fn create(
+        settings: &WorkerSettings,
+        email_attachment_ctx: Arc<EmailAttachmentContext>,
+        db: DatabaseConnection,
+    ) -> Self {
         Self {
-            send_email_processor: SendEmailProcessor::create(settings).expect("REASON"),
+            send_email_processor: SendEmailProcessor::create(settings, email_attachment_ctx),
             db,
         }
     }

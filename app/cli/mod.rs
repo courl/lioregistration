@@ -46,7 +46,7 @@ enum Commands {
 
 pub async fn run_command(settings: Settings, state: AppState) -> anyhow::Result<()> {
     match Args::parse().command {
-        Commands::Server {} => run_server(state, &settings.host, settings.port).await,
+        Commands::Server {} => run_server(state, &settings).await,
         Commands::AddAdmin {
             name,
             email,

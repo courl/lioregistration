@@ -37,12 +37,8 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(module);
     db.get_schema_registry(&module).sync(db).await?;
 
-    let config = Arc::new(settings.clone());
-
     let state = AppState {
         db: db.clone(),
-        smtp: Arc::new(config.smtp.clone()),
-        admin_email: settings.admin_email.clone(),
         rate_limiter: Arc::new(RateLimiter::new(5, Duration::from_hours(4))),
         token_generator: Arc::new(LoginTokenGenerator::from_secret(
             &settings.secret_key,

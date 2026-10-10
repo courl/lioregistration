@@ -6,6 +6,7 @@ use crate::entity::{email_attachment_template, email_template};
 use crate::error::{AppError, AppResult};
 use crate::jobs::worker::{JobResult, WorkerSettings};
 use crate::services::email_attachment::{EmailAttachmentContext, compile_typst_to_pdf};
+use crate::settings::SmtpSettings;
 use crate::utils::email_template::{
     EmailTemplate, GlobalContext, InstanceContext, apply_global_ctx, apply_instance_ctx,
 };
@@ -24,29 +25,21 @@ pub struct SendEmailPayload {
 }
 
 pub(crate) struct SendEmailProcessor {
-    sender_email: String,
+    smtp: Option<SmtpSettings>,
     admin_email: String,
-    smtp_server: String,
-    smtp_host: u16,
-    smtp_implicit_tls: bool,
-    smtp_credentials: Option<(String, String)>,
     email_attachment_ctx: Arc<EmailAttachmentContext>,
 }
 
 impl SendEmailProcessor {
-    pub(crate) fn create(settings: &WorkerSettings) -> AppResult<Self> {
-        let email_attachment_ctx = Arc::new(EmailAttachmentContext::create(
-            settings.assets_root.clone(),
-        )?);
-        Ok(Self {
-            sender_email: settings.sender_email.clone(),
+    pub(crate) fn create(
+        settings: &WorkerSettings,
+        email_attachment_ctx: Arc<EmailAttachmentContext>,
+    ) -> Self {
+        Self {
+            smtp: settings.smtp.clone(),
             admin_email: settings.admin_email.clone(),
-            smtp_server: settings.smtp_server.clone(),
-            smtp_host: settings.smtp_host,
-            smtp_implicit_tls: settings.smtp_implicit_tls,
-            smtp_credentials: settings.smtp_credentials.clone(),
             email_attachment_ctx,
-        })
+        }
     }
 
     pub(crate) async fn run(
@@ -76,14 +69,14 @@ impl SendEmailProcessor {
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Unable to render email: {}", e)))?;
 
         let mut client = {
-            if let Some(credentials) = &self.smtp_credentials {
+            if let Some(smtp) = &self.smtp {
                 Some(
-                    SmtpClientBuilder::new(self.smtp_server.clone(), self.smtp_host)
+                    SmtpClientBuilder::new(smtp.host.clone(), smtp.port)
                         .map_err(|_| {
                             AppError::Internal(anyhow::anyhow!("Cannot create smtp client"))
                         })?
-                        .implicit_tls(self.smtp_implicit_tls)
-                        .credentials(credentials.clone())
+                        .implicit_tls(smtp.implicit_tls)
+                        .credentials((smtp.username.clone(), smtp.password.clone()))
                         .connect()
                         .await
                         .map_err(|_| {
@@ -183,9 +176,13 @@ impl SendEmailProcessor {
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
+        let sender_email = self
+            .smtp
+            .as_ref()
+            .map_or(String::from("noreply@lio.lu"), |smtp| smtp.from.clone());
         if let Some(client) = client {
             let mut message = MessageBuilder::new()
-                .from(self.sender_email.clone())
+                .from(sender_email.clone())
                 .to(vec![(to.0.clone(), to.1.clone())])
                 .subject(subject.clone())
                 .html_body(email_content);
@@ -197,7 +194,7 @@ impl SendEmailProcessor {
             if let Err(error) = client.send(message).await {
                 return Err(AppError::Internal(anyhow::anyhow!(
                     "Cannot send email from {} to {} ({}) with subject '{}': {}",
-                    self.sender_email.clone(),
+                    sender_email.clone(),
                     to.0.clone(),
                     to.1.clone(),
                     subject.clone(),
@@ -209,7 +206,7 @@ impl SendEmailProcessor {
             let _ = std::fs::create_dir_all(&base);
             tracing::info!(
                 "Sending email from {} to {} ({}) in {}",
-                self.sender_email,
+                sender_email.clone(),
                 to.0,
                 to.1,
                 &base
