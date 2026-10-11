@@ -303,6 +303,7 @@ pub async fn send_email(
         .one(&state.db)
         .await?
         .ok_or(AppError::NotFound("Round does not exist".into()))?;
+    services::editions::get_editable_edition(round.edition_id, &state.db).await?;
 
     services::email_generation::send_round_email(
         &template,

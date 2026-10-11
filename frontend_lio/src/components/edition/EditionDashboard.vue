@@ -4,7 +4,11 @@ import { useRoute, useRouter } from "vue-router"
 
 import type { Edition } from "@/types/edition.ts"
 
-defineProps<{ edition: Edition }>()
+import { provideCanEdit } from "@/composables/use-can-edit.ts"
+
+const props = defineProps<{ edition: Edition }>()
+
+provideCanEdit(() => props.edition)
 
 const router = useRouter()
 const route = useRoute()

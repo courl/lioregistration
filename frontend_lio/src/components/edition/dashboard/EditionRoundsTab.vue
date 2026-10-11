@@ -3,12 +3,12 @@ import type { RoundModalProps } from "@/components/rounds/modals/RoundModal.sche
 import type { Edition } from "@/types/edition.ts"
 import type { Round, RoundId } from "@/types/round.ts"
 
-import { useAuth } from "@/composables/api.ts"
+import { useCanEdit } from "@/composables/use-can-edit.ts"
 import { useRoundModal } from "@/composables/use-round-modal.ts"
 import { useRounds } from "@/composables/use-round.ts"
 
 const props = defineProps<{ edition: Edition }>()
-const auth = useAuth()
+const canEdit = useCanEdit()
 const { rounds, createRound, updateRound, deleteRound } = useRounds(
   () => props.edition.id,
 )
@@ -45,7 +45,7 @@ async function processDeleteRound(round: Round) {
           />
         </div>
         <UButton
-          v-if="auth.isAdmin"
+          v-if="canEdit"
           icon="i-lucide-plus"
           variant="subtle"
           @click="async () => await openRoundDialog({ title: 'New Round' })"

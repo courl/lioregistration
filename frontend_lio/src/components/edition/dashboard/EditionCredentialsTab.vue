@@ -6,14 +6,14 @@ import { computed, ref } from "vue"
 import type { Credentials } from "@/types/credentials.ts"
 import type { Edition } from "@/types/edition.ts"
 
-import { useAuth } from "@/composables/api.ts"
+import { useCanEdit } from "@/composables/use-can-edit.ts"
 import { useConfirmDialog } from "@/composables/use-confirm-dialog.ts"
 import { useCredentialsModal } from "@/composables/use-credentials-modal.ts"
 import { useCredentials } from "@/composables/use-credentials.ts"
 
 const props = defineProps<{ edition: Edition }>()
 
-const auth = useAuth()
+const canEdit = useCanEdit()
 const confirm = useConfirmDialog()
 const credentialsDialog = useCredentialsModal()
 const {
@@ -80,12 +80,12 @@ const counts = computed(() => {
   return result
 })
 
-const columns: TableColumn<Credentials>[] = [
+const columns = computed<TableColumn<Credentials>[]>(() => [
   { id: "username", header: "Username" },
   { id: "password", header: "Password" },
   { id: "registrant", header: "Assigned to" },
-  ...(auth.isAdmin ? [{ id: "actions", header: "" }] : []),
-]
+  ...(canEdit.value ? [{ id: "actions", header: "" }] : []),
+])
 </script>
 
 <template>
@@ -117,7 +117,7 @@ const columns: TableColumn<Credentials>[] = [
           />
         </div>
         <UButton
-          v-if="auth.isAdmin"
+          v-if="canEdit"
           icon="i-lucide-plus"
           variant="subtle"
           @click="addCredentials"

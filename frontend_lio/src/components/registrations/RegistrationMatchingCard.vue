@@ -2,7 +2,7 @@
 import type { RegistrationDetails } from "@/types/registration.ts"
 import type { Student, StudentId } from "@/types/student.ts"
 
-import { useAuth } from "@/composables/api.ts"
+import { useCanEdit } from "@/composables/use-can-edit.ts"
 import { useConfirmDialog } from "@/composables/use-confirm-dialog.ts"
 
 defineProps<{ registration: RegistrationDetails; match?: [number, Student] }>()
@@ -13,7 +13,7 @@ const emit = defineEmits<{
   unlink: []
 }>()
 
-const auth = useAuth()
+const canEdit = useCanEdit()
 const confirm = useConfirmDialog()
 
 async function refuse() {
@@ -55,7 +55,7 @@ function selectStudent(value: unknown) {
       <div class="flex items-center justify-between">
         <span class="font-bold">Matching</span>
         <UButton
-          v-if="auth.isAdmin && registration.student"
+          v-if="canEdit && registration.student"
           size="xs"
           icon="i-lucide-unlink"
           variant="ghost"
@@ -90,7 +90,7 @@ function selectStudent(value: unknown) {
           No matching students found.
         </p>
 
-        <UFieldGroup v-if="auth.isAdmin" orientation="vertical" class="w-full">
+        <UFieldGroup v-if="canEdit" orientation="vertical" class="w-full">
           <UInput
             type="number"
             placeholder="Enter student-id to link"
@@ -117,7 +117,7 @@ function selectStudent(value: unknown) {
     </template>
     <template
       v-if="
-        auth.isAdmin &&
+        canEdit &&
         registration.review_status !== 'refused' &&
         !registration.student
       "

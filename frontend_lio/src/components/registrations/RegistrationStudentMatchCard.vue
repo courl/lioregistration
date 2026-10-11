@@ -2,11 +2,11 @@
 import type { Student } from "@/types/student.ts"
 
 import StudentAwardsBlock from "@/components/students/StudentAwardsBlock.vue"
-import { useAuth } from "@/composables/api.ts"
+import { useCanEdit } from "@/composables/use-can-edit.ts"
 
 defineProps<{ student: Student; match: number; matched?: boolean }>()
 const emit = defineEmits<{ linkAndValidate: [Student] }>()
-const auth = useAuth()
+const canEdit = useCanEdit()
 </script>
 
 <template>
@@ -31,7 +31,7 @@ const auth = useAuth()
       </div>
 
       <UButton
-        v-if="auth.isAdmin && !matched"
+        v-if="canEdit && !matched"
         variant="ghost"
         size="sm"
         icon="i-lucide-link"

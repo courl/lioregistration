@@ -5,11 +5,10 @@ import type { ParticipationData } from "@/components/rounds/modals/RoundParticip
 import type { EmailTemplateId } from "@/types/email.ts"
 import type { Participant, RoundId, TaskId } from "@/types/round.ts"
 
-import { useAuth } from "@/composables/api.ts"
+import { provideCanEdit } from "@/composables/use-can-edit.ts"
 import { useRound, useRounds } from "@/composables/use-round.ts"
 import { useRouteId } from "@/composables/use-route-id.ts"
 
-const auth = useAuth()
 const toast = useToast()
 const roundId = useRouteId<RoundId>()
 const {
@@ -22,6 +21,7 @@ const {
   bulkUpdateScores,
   sendEmail,
 } = useRound(roundId)
+const canEdit = provideCanEdit(() => round.value?.edition)
 const { rounds, moveTo } = useRounds(() => round.value?.edition.id)
 
 const state = ref("stats")
@@ -30,7 +30,7 @@ const tabs = computed(() => [
   { icon: "i-lucide-activity", label: "Statistics", value: "stats" },
   { icon: "i-lucide-logs", label: "Tasks", value: "tasks" },
   { icon: "i-lucide-user", label: "Scores", value: "participants" },
-  ...(auth.isAdmin
+  ...(canEdit.value
     ? [
         {
           icon: "i-lucide-circle-arrow-right",
@@ -128,14 +128,14 @@ async function processSendEmail(
         @update-participation="processUpdateParticipation"
       />
     </template>
-    <template v-else-if="state === 'move' && auth.isAdmin">
+    <template v-else-if="state === 'move' && canEdit">
       <RoundParticipantsMoveCard
         :participants="round.participants"
         :rounds="rounds.filter((x) => x.id !== round?.id)"
         @move-to="async (target, students) => await moveTo(target.id, students)"
       />
     </template>
-    <template v-else-if="state === 'comm' && auth.isAdmin">
+    <template v-else-if="state === 'comm' && canEdit">
       <RoundEmailCard @send-mail="processSendEmail" />
     </template>
     <template v-else>

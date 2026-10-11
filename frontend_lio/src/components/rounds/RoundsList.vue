@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useAuth } from "@/composables/api.ts"
+import { useCanEdit } from "@/composables/use-can-edit.ts"
 import { useConfirmDialog } from "@/composables/use-confirm-dialog.ts"
 import { type Round } from "@/types/round.ts"
 
@@ -8,7 +8,7 @@ const emit = defineEmits<{
   deleteRound: [round: Round]
   editRound: [round: Round]
 }>()
-const auth = useAuth()
+const canEdit = useCanEdit()
 const confirm = useConfirmDialog()
 
 async function handleDelete(round: Round) {
@@ -50,7 +50,7 @@ async function handleDelete(round: Round) {
             ]"
           />
         </div>
-        <UFieldGroup v-if="auth.isAdmin">
+        <UFieldGroup v-if="canEdit">
           <UButton
             variant="ghost"
             size="sm"
