@@ -97,7 +97,7 @@ pub mod tests {
 
     pub async fn create_edition(
         db: &DatabaseConnection,
-        year: u32,
+        year: i32,
         active: bool,
         opens: NaiveDate,
         closes: NaiveDate,
@@ -161,7 +161,7 @@ pub mod tests {
         round_id: i32,
         name: &str,
         ordinal: i32,
-        max_points: u32,
+        max_points: i32,
     ) -> task::Model {
         task::ActiveModel {
             round_id: Set(round_id),

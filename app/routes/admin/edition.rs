@@ -1,6 +1,6 @@
 use crate::entity::admin_user::UserRole;
 use crate::entity::edition;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::middleware::auth::Auth;
 use crate::services;
 use crate::services::editions::EditionStatistics;
@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize)]
 pub struct Edition {
     pub id: i32,
-    pub year: u32,
+    pub year: i32,
     pub name: String,
     pub active: bool,
     pub registration_opens_at: ChronoDate,
@@ -97,7 +97,8 @@ pub async fn create_edition(
     )?;
     let model = edition::ActiveModel::create(
         &body.name,
-        body.year,
+        i32::try_from(body.year)
+            .map_err(|_| AppError::BadRequest("Year is out of range".into()))?,
         body.registration_opens_at,
         body.registration_closes_at,
     )

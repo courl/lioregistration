@@ -35,7 +35,7 @@ pub struct Student {
 pub struct StudentRoundParticipationScore {
     pub task: String,
     pub score: f32,
-    pub max_points: u32,
+    pub max_points: i32,
 }
 
 #[derive(Serialize)]

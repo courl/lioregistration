@@ -72,15 +72,21 @@ impl SendEmailProcessor {
             if let Some(smtp) = &self.smtp {
                 Some(
                     SmtpClientBuilder::new(smtp.host.clone(), smtp.port)
-                        .map_err(|_| {
-                            AppError::Internal(anyhow::anyhow!("Cannot create smtp client"))
+                        .map_err(|e| {
+                            tracing::error!(error = ?e, "Failed to create SMTP client builder");
+                            AppError::Internal(anyhow::anyhow!(
+                                "Cannot create SMTP client builder: {e:?}"
+                            ))
                         })?
                         .implicit_tls(smtp.implicit_tls)
                         .credentials((smtp.username.clone(), smtp.password.clone()))
                         .connect()
                         .await
-                        .map_err(|_| {
-                            AppError::Internal(anyhow::anyhow!("Cannot create smtp client"))
+                        .map_err(|e| {
+                            tracing::error!(error = ?e, "Failed to connect to SMTP server");
+                            AppError::Internal(anyhow::anyhow!(
+                                "Failed to connect to SMTP server: {e:?}"
+                            ))
                         })?,
                 )
             } else {

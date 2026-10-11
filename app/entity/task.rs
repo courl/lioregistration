@@ -13,7 +13,7 @@ pub struct Model {
     pub round_id: i32,
     pub name: String,
     pub ordinal: i32,
-    pub max_points: u32,
+    pub max_points: i32,
     #[sea_orm(belongs_to, from = "round_id", to = "id")]
     pub round: HasOne<super::round::Entity>,
     #[sea_orm(has_many)]
@@ -23,7 +23,7 @@ pub struct Model {
 impl ActiveModelBehavior for ActiveModel {}
 
 impl ActiveModel {
-    pub fn create(round: super::round::Model, name: String, ordinal: i32, max_points: u32) -> Self {
+    pub fn create(round: super::round::Model, name: String, ordinal: i32, max_points: i32) -> Self {
         Self {
             id: ActiveValue::NotSet,
             round_id: ActiveValue::Set(round.id),

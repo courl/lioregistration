@@ -20,6 +20,8 @@ export default defineConfig({
       },
     }),
     vitePluginChecker({
+      // Dev overlay only: `bun run build` already runs vue-tsc, and lint belongs to `bun run check`.
+      enableBuild: false,
       vueTsc: true,
       eslint: {
         lintCommand: "eslint .",
