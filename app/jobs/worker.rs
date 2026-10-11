@@ -10,6 +10,7 @@ use sea_orm::{ColumnTrait, QueryOrder};
 use sea_orm::{DatabaseConnection, EntityTrait, TransactionTrait};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::watch;
 
 pub(crate) enum JobResult {
     Complete,
@@ -38,20 +39,27 @@ impl Worker {
         }
     }
 
-    pub async fn run(&self) {
+    /// Processes jobs until `shutdown` flips to `true`. Shutdown is only observed between
+    /// jobs, so a running job finishes instead of being left `Running` (and later `Failed`).
+    pub async fn run(&self, mut shutdown: watch::Receiver<bool>) {
         if let Err(e) = self.fail_interrupted_jobs().await {
             tracing::error!("Could not recover interrupted jobs: {e:#}");
         }
-        loop {
-            match self.tick().await {
-                Ok(true) => {}
-                Ok(false) => tokio::time::sleep(Duration::from_mins(1)).await,
+        while !*shutdown.borrow() {
+            let idle = match self.tick().await {
+                Ok(true) => continue,
+                Ok(false) => Duration::from_mins(1),
                 Err(e) => {
                     tracing::error!("Job worker error: {e:#}");
-                    tokio::time::sleep(Duration::from_secs(10)).await;
+                    Duration::from_secs(10)
                 }
+            };
+            tokio::select! {
+                () = tokio::time::sleep(idle) => {}
+                _ = shutdown.changed() => {}
             }
         }
+        tracing::info!("Job worker stopped");
     }
 
     /// A job still `Running` at startup was interrupted by a crash/restart. Retrying could

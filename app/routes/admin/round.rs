@@ -56,7 +56,7 @@ pub struct Task {
     pub id: i32,
     pub name: String,
     pub ordinal: i32,
-    pub max_points: u32,
+    pub max_points: i32,
 }
 
 #[derive(Deserialize)]
@@ -166,7 +166,11 @@ impl RoundDetail {
             round: Round::create(
                 round,
                 Statistics {
-                    total_points: details.tasks.iter().map(|x| x.max_points).sum(),
+                    total_points: details
+                        .tasks
+                        .iter()
+                        .map(|x| u32::try_from(x.max_points).unwrap_or(0))
+                        .sum(),
                     task_count: details.tasks.len() as u32,
                     participant_count: participants
                         .iter()
@@ -408,11 +412,21 @@ pub async fn add_task(
         .ok_or(AppError::NotFound("Round does not exist".into()))?;
     services::editions::get_editable_edition(round.edition_id, &state.db).await?;
 
-    let task = task::ActiveModel::create(round, request.name, request.ordinal, request.max_points)
-        .insert(&state.db)
-        .await?;
+    let task = task::ActiveModel::create(
+        round,
+        request.name,
+        request.ordinal,
+        max_points_column(request.max_points)?,
+    )
+    .insert(&state.db)
+    .await?;
 
     Ok(Json(Task::create(&task)))
+}
+
+/// The API takes `max_points` unsigned, the column is `i32` (Postgres has no unsigned integers).
+fn max_points_column(max_points: u32) -> AppResult<i32> {
+    i32::try_from(max_points).map_err(|_| AppError::BadRequest("max_points is out of range".into()))
 }
 
 pub async fn update_task(
@@ -439,7 +453,7 @@ pub async fn update_task(
 
     if let Some(max_points) = request.max_points {
         services::rounds::ensure_max_points_fit(&current, max_points, &state.db).await?;
-        task.max_points = ActiveValue::Set(max_points);
+        task.max_points = ActiveValue::Set(max_points_column(max_points)?);
     }
     let task = task.update(&state.db).await?;
     Ok(Json(Task::create(&task)))

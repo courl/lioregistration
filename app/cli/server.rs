@@ -5,11 +5,17 @@ use crate::{jobs, routes};
 use axum::http::{HeaderValue, Method, header};
 use std::net::SocketAddr;
 use std::time::Duration;
+use tokio::sync::watch;
+use tokio::task::JoinHandle;
 use tower::util::option_layer;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
-fn spawn_worker(state: &AppState, settings: &Settings) {
+fn spawn_worker(
+    state: &AppState,
+    settings: &Settings,
+    shutdown: watch::Receiver<bool>,
+) -> JoinHandle<()> {
     let settings = WorkerSettings {
         admin_email: settings.admin_email.clone(),
         smtp: settings.smtp.clone(),
@@ -17,8 +23,41 @@ fn spawn_worker(state: &AppState, settings: &Settings) {
     let ctx = state.email_attachment_ctx.clone();
     let db = state.db.clone();
     tokio::spawn(async move {
-        jobs::worker::Worker::create(&settings, ctx, db).run().await;
-    });
+        jobs::worker::Worker::create(&settings, ctx, db)
+            .run(shutdown)
+            .await;
+    })
+}
+
+/// Resolves on Ctrl-C or SIGTERM. In a container the server is PID 1, which gets no default
+/// signal handlers, so without this `docker stop` waits out its timeout and SIGKILLs us.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            tracing::error!("Could not listen for Ctrl-C: {e}");
+            std::future::pending::<()>().await;
+        }
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(e) => {
+                tracing::error!("Could not listen for SIGTERM: {e}");
+                std::future::pending::<()>().await;
+            }
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        () = ctrl_c => {}
+        () = terminate => {}
+    }
+    tracing::info!("Shutting down");
 }
 
 fn spawn_rate_limit_cleanup(state: &AppState) {
@@ -69,6 +108,7 @@ pub async fn run_server(state: AppState, settings: &Settings) -> anyhow::Result<
             anyhow::bail!("secret_key is the development default; set LIO__SECRET_KEY");
         }
     }
+
     let cors = cors_layer(&settings.cors_origins)?;
     if let Some(dir) = &settings.frontend_dir {
         if !dir.join("index.html").is_file() {
@@ -77,7 +117,8 @@ pub async fn run_server(state: AppState, settings: &Settings) -> anyhow::Result<
         tracing::info!("Serving frontend from {}", dir.display());
     }
 
-    spawn_worker(&state, settings);
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let worker = spawn_worker(&state, settings, shutdown_rx);
     spawn_rate_limit_cleanup(&state);
 
     let api = routes::build(state);
@@ -93,7 +134,14 @@ pub async fn run_server(state: AppState, settings: &Settings) -> anyhow::Result<
     tracing::info!("Listening on {addr}");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            shutdown_signal().await;
+            let _ = shutdown_tx.send(true);
+        })
+        .await?;
 
+    // Let a job that is mid-send finish before the process exits.
+    worker.await?;
     Ok(())
 }

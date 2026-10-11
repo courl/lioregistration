@@ -12,7 +12,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
     #[sea_orm(unique)]
-    pub year: u32,
+    pub year: i32,
     pub name: String,
     pub active: bool,
     pub registration_opens_at: ChronoDate,
@@ -33,7 +33,7 @@ impl ActiveModelBehavior for ActiveModel {}
 impl ActiveModel {
     pub fn create(
         name: &str,
-        year: u32,
+        year: i32,
         registration_opens_at: ChronoDate,
         registration_closes_at: ChronoDate,
     ) -> Self {

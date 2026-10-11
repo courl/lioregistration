@@ -20,6 +20,10 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("no rustls crypto provider installed yet");
+
     //todo: remove debug/info switches
     tracing_subscriber::registry()
         .with(
