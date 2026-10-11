@@ -41,7 +41,7 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
-      - run: cargo build --release --locked
+      - run: cargo build --locked
 
   docker:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
