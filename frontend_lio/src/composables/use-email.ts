@@ -115,6 +115,11 @@ export const previewRoundEmail = async (
     { method: "POST", body: request },
   )
 
-// Initial values for a template's custom fields: the declared defaults.
-export const defaultCustomValues = (fields: CustomField[]): CustomValues =>
-  Object.fromEntries(fields.map((field) => [field.key, field.default ?? ""]))
+// Initial values for a template's custom fields: the declared defaults, else `fallback`.
+export const defaultCustomValues = (
+  fields: CustomField[],
+  fallback: (field: CustomField) => string = () => "",
+): CustomValues =>
+  Object.fromEntries(
+    fields.map((field) => [field.key, field.default ?? fallback(field)]),
+  )

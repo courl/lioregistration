@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue"
 
 import type { RoundId } from "@/types/round.ts"
+import type { StudentId } from "@/types/student.ts"
 
 import { useConfirmDialog } from "@/composables/use-confirm-dialog.ts"
 import {
@@ -21,20 +22,13 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  sendMail: [
-    email: EmailTemplateId,
-    headline: string,
-    body: string,
-    custom: CustomValues,
-  ]
+  sendMail: [email: EmailTemplateId, custom: CustomValues]
 }>()
 
 const confirm = useConfirmDialog()
 const { emails } = useEmails("round")
 const selectedEmailId = ref<EmailTemplateId>()
 const { email: selectedEmail } = useEmailTemplate(selectedEmailId)
-const headline = ref<string>("LIO - NEWS")
-const body = ref<string>("")
 const custom = ref<CustomValues>({})
 
 const fields = computed(() => selectedEmail.value?.custom_fields ?? [])
@@ -44,24 +38,11 @@ watch(selectedEmail, (email) => {
   custom.value = defaultCustomValues(email?.custom_fields ?? [])
 })
 
-const missingFields = computed(() =>
-  fields.value
-    .filter(
-      (field) =>
-        field.required &&
-        !(
-          Object.hasOwn(custom.value, field.key) &&
-          custom.value[field.key].trim()
-        ),
-    )
-    .map((field) => field.label),
-)
-
+// Every field is required, for sending as well as for the preview.
 const canSend = computed(
   () =>
     selectedEmail.value !== undefined &&
-    headline.value !== "" &&
-    missingFields.value.length === 0,
+    fields.value.every((field) => custom.value[field.key].trim() !== ""),
 )
 
 async function sendMail() {
@@ -72,13 +53,7 @@ async function sendMail() {
       description: `Are you sure you want to send this email?`,
     }))
   ) {
-    emit(
-      "sendMail",
-      selectedEmailId.value,
-      headline.value,
-      body.value,
-      custom.value,
-    )
+    emit("sendMail", selectedEmailId.value, custom.value)
   }
 }
 
@@ -86,20 +61,17 @@ async function sendMail() {
 const previewOpen = ref(false)
 const previewLoading = ref(false)
 const preview = ref<RoundEmailPreview>()
-const previewStudentId = ref<number>()
 
-async function loadPreview() {
+// Without `studentId`, the backend previews the first participant.
+async function loadPreview(studentId?: StudentId) {
   if (selectedEmailId.value === undefined) return
   previewLoading.value = true
   try {
     preview.value = await previewRoundEmail(selectedEmailId.value, {
       round_id: props.roundId,
-      student_id: previewStudentId.value,
-      headline: headline.value,
-      body: body.value,
+      student_id: studentId,
       custom: custom.value,
     })
-    previewStudentId.value = preview.value.student_id
   } catch {
     // Already toasted by the API client
     previewOpen.value = false
@@ -110,14 +82,7 @@ async function loadPreview() {
 
 async function openPreview() {
   preview.value = undefined
-  previewStudentId.value = undefined
   previewOpen.value = true
-  await loadPreview()
-}
-
-async function selectRecipient(studentId: unknown) {
-  if (typeof studentId !== "number") return
-  previewStudentId.value = studentId
   await loadPreview()
 }
 </script>
@@ -132,7 +97,7 @@ async function selectRecipient(studentId: unknown) {
             size="xs"
             variant="subtle"
             icon="i-lucide-eye"
-            :disabled="selectedEmail === undefined"
+            :disabled="!canSend"
             @click="openPreview"
             >Preview</UButton
           >
@@ -147,27 +112,16 @@ async function selectRecipient(studentId: unknown) {
       </div>
     </template>
     <div class="space-y-4">
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <UFormField label="Template">
-          <USelect
-            v-model="selectedEmailId"
-            :items="emails.map((x) => ({ label: x.name, value: x.id }))"
-            class="w-full"
-          />
-        </UFormField>
-        <UFormField label="Headline">
-          <UInput v-model="headline" class="w-full" />
-        </UFormField>
-      </div>
-      <UFormField label="Body">
-        <UTextarea v-model="body" class="w-full" autoresize />
+      <UFormField label="Template">
+        <USelect
+          v-model="selectedEmailId"
+          :items="emails.map((x) => ({ label: x.name, value: x.id }))"
+          class="w-full"
+        />
       </UFormField>
       <template v-if="fields.length > 0">
-        <USeparator label="Template fields" />
+        <USeparator />
         <CustomFieldInputs v-model="custom" :fields="fields" />
-        <p v-if="missingFields.length > 0" class="text-sm text-muted">
-          Required before sending: {{ missingFields.join(", ") }}
-        </p>
       </template>
     </div>
   </UCard>
@@ -182,7 +136,7 @@ async function selectRecipient(studentId: unknown) {
       <div class="space-y-4">
         <UFormField label="Participant">
           <USelect
-            :model-value="previewStudentId"
+            :model-value="preview?.student_id"
             :items="
               (preview?.recipients ?? []).map((r) => ({
                 label: r.name,
@@ -191,7 +145,7 @@ async function selectRecipient(studentId: unknown) {
             "
             :loading="previewLoading"
             class="w-full"
-            @update:model-value="selectRecipient"
+            @update:model-value="(id) => loadPreview(id as StudentId)"
           />
         </UFormField>
         <EmailPreviewPane v-if="preview" :preview="preview" />

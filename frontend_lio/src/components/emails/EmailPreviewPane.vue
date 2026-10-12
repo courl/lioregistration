@@ -42,6 +42,13 @@ watch(
     />
     <div class="rounded border border-muted h-full">
       <template v-if="tab === 'preview'">
+        <div
+          v-if="preview.subject"
+          class="border-b border-muted px-3 py-2 text-sm"
+        >
+          <span class="text-muted">Subject:</span>
+          <span class="font-medium">{{ preview.subject }}</span>
+        </div>
         <!-- eslint-disable-next-line vue/no-v-html -->
         <div v-if="preview.html" v-html="preview.html" />
         <UError

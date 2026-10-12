@@ -75,14 +75,9 @@ async function processBulkUpdateScores(
   }
 }
 
-async function processSendEmail(
-  email: EmailTemplateId,
-  headline: string,
-  body: string,
-  custom: CustomValues,
-) {
+async function processSendEmail(email: EmailTemplateId, custom: CustomValues) {
   try {
-    await sendEmail(email, headline, body, custom)
+    await sendEmail(email, custom)
   } catch {
     // Already toasted by the API client
     return

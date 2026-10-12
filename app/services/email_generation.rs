@@ -8,11 +8,12 @@ use crate::jobs::Job;
 use crate::jobs::send_email::SendEmailPayload;
 use crate::services::email_attachment::EmailAttachmentContext;
 use crate::utils::email_template::{
-    EmailTemplate, GlobalContext, InstanceContext, apply_global_ctx_typst, apply_instance_ctx_typst,
+    CustomValue, EmailTemplate, GlobalContext, InstanceContext, apply_global_ctx_typst,
+    apply_instance_ctx_typst, render_subject,
 };
 use base64::Engine;
 use chrono::Local;
-use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, ModelTrait, QueryFilter};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -26,6 +27,7 @@ pub struct AttachmentPreview {
 
 #[derive(Serialize)]
 pub struct EmailPreview {
+    subject: String,
     html: Option<String>,
     attachments: Vec<AttachmentPreview>,
     error: Option<String>,
@@ -62,16 +64,17 @@ async fn create_attachment_preview(
     result
 }
 
-pub async fn preview_email(
+async fn preview_email(
     template: &email_template::Model,
     attachments: &Vec<email_attachment_template::Model>,
-    body_markdown: &str,
     global_ctx: &GlobalContext,
     instance_ctx: &InstanceContext,
     email_attachment_ctx: &Arc<EmailAttachmentContext>,
 ) -> EmailPreview {
-    match EmailTemplate::from_template(template.template.as_str(), global_ctx, body_markdown) {
+    let subject = render_subject(template.subject(), global_ctx, instance_ctx);
+    match EmailTemplate::from_template(template.template.as_str(), global_ctx) {
         Ok(template) => EmailPreview {
+            subject,
             html: Some(template.instantiate(instance_ctx)),
             attachments: create_attachment_preview(
                 attachments,
@@ -83,11 +86,49 @@ pub async fn preview_email(
             error: None,
         },
         Err(e) => EmailPreview {
+            subject,
             html: None,
             attachments: Vec::new(),
             error: Some(e.to_string()),
         },
     }
+}
+
+async fn load_template_with_attachments(
+    id: i32,
+    db: &impl ConnectionTrait,
+) -> AppResult<(email_template::Model, Vec<email_attachment_template::Model>)> {
+    let template = email_template::Entity::find_by_id(id)
+        .one(db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Template does not exist".into()))?;
+    let attachments = template
+        .find_related(email_attachment_template::Entity)
+        .all(db)
+        .await?;
+    Ok((template, attachments))
+}
+
+/// Renders a template with made-up contexts (template editor); `custom` holds the test
+/// values of its fields.
+pub async fn preview_test_email(
+    template_id: i32,
+    mut global_ctx: GlobalContext,
+    instance_ctx: &InstanceContext,
+    custom: BTreeMap<String, String>,
+    email_attachment_ctx: &Arc<EmailAttachmentContext>,
+    db: &impl ConnectionTrait,
+) -> AppResult<EmailPreview> {
+    let (template, attachments) = load_template_with_attachments(template_id, db).await?;
+    global_ctx.custom = template.custom_fields().resolve_values(custom)?;
+    Ok(preview_email(
+        &template,
+        &attachments,
+        &global_ctx,
+        instance_ctx,
+        email_attachment_ctx,
+    )
+    .await)
 }
 
 async fn load_template(
@@ -113,14 +154,15 @@ pub async fn send_registration_email(
     let first_round = super::rounds::get_first_round(edition.id, db).await?;
     let template = load_template(TemplateType::Registration, db).await?;
 
+    // Nobody fills fields for an automatic email: declared ones take their defaults.
+    let custom = template.custom_fields().resolve_values(BTreeMap::new())?;
     let global_ctx = GlobalContext {
-        headline: "Registration".into(),
         edition: edition.name.clone(),
         round: Some(first_round.name),
         round_starts_at: first_round.starts_at,
         round_ends_at: first_round.ends_at,
         students: None,
-        custom: BTreeMap::new(),
+        custom,
     };
 
     let instance_ctx = InstanceContext {
@@ -136,7 +178,6 @@ pub async fn send_registration_email(
         Job::SendEmail(SendEmailPayload {
             template_id: template.id,
             global_context: global_ctx,
-            body_markdown: String::new(),
             instances: Some(vec![(registration.email.clone(), instance_ctx)]),
         }),
         db,
@@ -158,7 +199,6 @@ pub struct RoundRecipient {
 async fn build_round_contexts(
     template: &email_template::Model,
     round: &round::Model,
-    headline: String,
     custom: BTreeMap<String, String>,
     db: &impl ConnectionTrait,
 ) -> AppResult<(GlobalContext, Vec<RoundRecipient>)> {
@@ -184,7 +224,6 @@ async fn build_round_contexts(
         .await?;
 
     let global_ctx = GlobalContext {
-        headline,
         edition: edition.name,
         round: Some(round.name.clone()),
         round_starts_at: round.starts_at,
@@ -244,19 +283,15 @@ async fn build_round_contexts(
 pub async fn send_round_email(
     template: &email_template::Model,
     round: &round::Model,
-    headline: String,
-    body: String,
     custom: BTreeMap<String, String>,
     db: &impl ConnectionTrait,
 ) -> AppResult<()> {
-    let (global_ctx, recipients) =
-        build_round_contexts(template, round, headline, custom, db).await?;
+    let (global_ctx, recipients) = build_round_contexts(template, round, custom, db).await?;
 
     jobs::enqueue(
         Job::SendEmail(SendEmailPayload {
             template_id: template.id,
             global_context: global_ctx,
-            body_markdown: body,
             instances: Some(
                 recipients
                     .into_iter()
@@ -289,20 +324,16 @@ pub struct RoundEmailPreview {
 
 /// Renders the email (and attachments) exactly as `student_id` — or the first participant —
 /// would receive it from `send_round_email` with the same input.
-#[allow(clippy::too_many_arguments)]
 pub async fn preview_round_email(
-    template: &email_template::Model,
-    attachments: &Vec<email_attachment_template::Model>,
+    template_id: i32,
     round: &round::Model,
     student_id: Option<i32>,
-    headline: String,
-    body: &str,
     custom: BTreeMap<String, String>,
     email_attachment_ctx: &Arc<EmailAttachmentContext>,
     db: &impl ConnectionTrait,
 ) -> AppResult<RoundEmailPreview> {
-    let (global_ctx, recipients) =
-        build_round_contexts(template, round, headline, custom, db).await?;
+    let (template, attachments) = load_template_with_attachments(template_id, db).await?;
+    let (global_ctx, recipients) = build_round_contexts(&template, round, custom, db).await?;
     let recipient = match student_id {
         Some(id) => recipients
             .iter()
@@ -316,9 +347,8 @@ pub async fn preview_round_email(
     };
 
     let preview = preview_email(
-        template,
-        attachments,
-        body,
+        &template,
+        &attachments,
         &global_ctx,
         &recipient.context,
         email_attachment_ctx,
@@ -345,21 +375,23 @@ pub async fn send_error_email(
     // fixme: what if loading fails, need to enqueue a dumb version
     let template = load_template(TemplateType::Error, db).await?;
     let today = Local::now().date_naive();
+    // The Error template shows these as `{{?headline}}` and `{{?content}}`.
     let global_ctx = GlobalContext {
-        headline: "Error".into(),
         edition: String::new(),
         round: None,
         round_starts_at: today,
         round_ends_at: today,
         students: None,
-        custom: BTreeMap::new(),
+        custom: BTreeMap::from([
+            ("headline".into(), CustomValue::Text("Error".into())),
+            ("content".into(), CustomValue::Markdown(content_markdown)),
+        ]),
     };
 
     jobs::enqueue(
         Job::SendEmail(SendEmailPayload {
             template_id: template.id,
             global_context: global_ctx,
-            body_markdown: content_markdown,
             instances: None,
         }),
         db,

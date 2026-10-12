@@ -2,6 +2,7 @@
 import { reactive, ref, watch } from "vue"
 
 import type {
+  CustomField,
   CustomValues,
   EmailPreview,
   EmailPreviewRequest,
@@ -28,13 +29,11 @@ const preview = ref<EmailPreview>({
   error: "Not computed yet",
 })
 const tab = ref<string>("template")
-// Test values for the template's custom fields, start from the declared defaults.
+// Test values for the template's custom fields.
 const customValues = ref<CustomValues>({})
 
-const body = ref<string>("This is a **test**")
 const global_context: EmailPreviewRequest["global_context"] = reactive({
   edition: "LIO 2026",
-  headline: "LIO - NEWS",
   round_starts_at: new CalendarDate({ year: 2025, month: 11, day: 25 }),
   round_ends_at: new CalendarDate({ year: 2026, month: 2, day: 15 }),
   students: [
@@ -63,21 +62,28 @@ async function refreshPreview() {
   previewLoading.value = true
   try {
     preview.value = await previewEmailTemplate({
-      body: body.value,
-      global_context: { ...global_context, custom: customValues.value },
+      global_context,
       instance_context,
+      custom: customValues.value,
     })
   } finally {
     previewLoading.value = false
   }
 }
 
-// The preview renders the saved template, refresh it on load and save
+// Every field is required: without a default, preview with the label (or today).
+const sampleValue = (field: CustomField) =>
+  field.kind === "date" ? new CalendarDate({}).toString() : field.label
+
+// The preview renders the saved template, refresh it on load and save. Values typed in
+// for the preview are kept.
 watch(email, async (email) => {
-  customValues.value = {
-    ...defaultCustomValues(email?.custom_fields ?? []),
-    ...customValues.value,
-  }
+  const typed = customValues.value
+  customValues.value = Object.fromEntries(
+    Object.entries(
+      defaultCustomValues(email?.custom_fields ?? [], sampleValue),
+    ).map(([key, value]) => [key, typed[key] || value]),
+  )
   await refreshPreview()
 })
 
@@ -105,7 +111,6 @@ watch(
       instance_context.credentials_username = undefined
       instance_context.credentials_password = undefined
     } else {
-      global_context.headline = "Registration"
       global_context.students = []
       instance_context.credentials_username = "lio1"
 
@@ -189,6 +194,18 @@ function setTemplateType(value: unknown) {
             />
           </UFormField>
         </div>
+        <UFormField
+          label="Subject"
+          hint="Placeholders allowed, e.g. {{?headline}}"
+          class="mb-2"
+        >
+          <UInput
+            :model-value="email.subject ?? ''"
+            :placeholder="email.name"
+            class="w-full"
+            @update:model-value="(v) => email && (email.subject = String(v))"
+          />
+        </UFormField>
         <UFormField label="Template">
           <UTextarea
             v-model="email.template"
@@ -252,15 +269,6 @@ function setTemplateType(value: unknown) {
                   class="w-full"
                 ></UInput>
               </UFormField>
-              <UFormField
-                label="Headline"
-                :hidden="email.template_type === 'registration'"
-              >
-                <UInput
-                  v-model="global_context.headline"
-                  class="w-full"
-                ></UInput>
-              </UFormField>
             </div>
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <UFormField label="Round Start">
@@ -284,12 +292,6 @@ function setTemplateType(value: unknown) {
                 />
               </UFormField>
             </div>
-            <UFormField
-              label="Body"
-              :hidden="email.template_type === 'registration'"
-            >
-              <UTextarea v-model="body" class="w-full" autoresize />
-            </UFormField>
           </section>
 
           <template v-if="email.custom_fields.length > 0">

@@ -244,7 +244,7 @@ pub mod tests {
     ) -> email_template::Model {
         email_template::ActiveModel::create(
             format!("{template_type:?}"),
-            "<mjml><mj-body><mj-section><mj-column><mj-text>{{!headline}} {{given_name}}</mj-text></mj-column></mj-section></mj-body></mjml>".into(),
+            "<mjml><mj-body><mj-section><mj-column><mj-text>{{?headline}} {{given_name}}</mj-text></mj-column></mj-section></mj-body></mjml>".into(),
             template_type,
         )
         .insert(db)

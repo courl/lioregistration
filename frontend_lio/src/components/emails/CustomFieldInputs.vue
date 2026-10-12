@@ -9,6 +9,8 @@ defineProps<{
   fields: CustomField[]
 }>()
 
+const placeholder = (key: string) => `{{?${key}}}`
+
 function dateValue(key: string) {
   try {
     return CalendarDate.parse(values.value[key] ?? "").toDateValue()
@@ -31,14 +33,15 @@ function setDate(
       v-for="field in fields"
       :key="field.key"
       :label="field.label"
-      :required="field.required"
-      :hint="`{{?${field.key}}}`"
+      :hint="placeholder(field.key)"
+      required
       :class="field.kind === 'multiline' ? 'sm:col-span-2' : ''"
     >
       <UTextarea
         v-if="field.kind === 'multiline'"
         v-model="values[field.key]"
         class="w-full"
+        placeholder="Markdown"
         autoresize
       />
       <UInputDate

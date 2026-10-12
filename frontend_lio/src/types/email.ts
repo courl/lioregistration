@@ -1,5 +1,7 @@
 import type { Badge } from "@/types/badge.ts"
 import type CalendarDate from "@/types/calendar-date.ts"
+import type { RoundId } from "@/types/round.ts"
+import type { StudentId } from "@/types/student.ts"
 
 export type EmailTemplateId = Badge<number, "email_id">
 type EmailAttachmentId = Badge<number, "attachment_id">
@@ -23,14 +25,15 @@ export interface CustomField {
   key: string
   label: string
   kind: CustomFieldKind
-  required: boolean
-  default?: string | null
+  default: string | null
 }
 
 // Custom field values by key; dates as ISO `YYYY-MM-DD`.
 export type CustomValues = Record<string, string>
 
 export interface EmailTemplateDetails extends EmailTemplate {
+  // Subject line, may use placeholders; empty = the template name.
+  subject?: string | null
   template: string
   custom_fields: CustomField[]
 }
@@ -38,15 +41,12 @@ export interface EmailTemplateDetails extends EmailTemplate {
 export type EmailTemplateUpdateRequest = Omit<EmailTemplateDetails, "id">
 
 export interface EmailPreviewRequest {
-  body: string
   global_context: {
-    headline: string
     edition: string
     round?: string
     round_starts_at: CalendarDate
     round_ends_at: CalendarDate
     students?: [string, number][]
-    custom?: CustomValues
   }
   instance_context: {
     given_name: string
@@ -56,6 +56,7 @@ export interface EmailPreviewRequest {
     credentials_username?: string
     credentials_password?: string
   }
+  custom: CustomValues
 }
 
 interface AttachmentPreview {
@@ -65,20 +66,19 @@ interface AttachmentPreview {
 }
 
 export interface EmailPreview {
+  subject?: string
   html?: string | null
   attachments: AttachmentPreview[]
   error?: string | null
 }
 
 export interface RoundEmailPreviewRequest {
-  round_id: number
-  student_id?: number
-  headline: string
-  body: string
+  round_id: RoundId
+  student_id?: StudentId
   custom: CustomValues
 }
 
 export interface RoundEmailPreview extends EmailPreview {
-  student_id: number
-  recipients: { student_id: number; name: string }[]
+  student_id: StudentId
+  recipients: { student_id: StudentId; name: string }[]
 }

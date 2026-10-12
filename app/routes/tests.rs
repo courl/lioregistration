@@ -382,7 +382,7 @@ async fn inactive_edition_is_read_only() {
         (
             Method::POST,
             format!("/api/admin/emails/{}/send", template.id),
-            Some(json!({ "round_id": r, "headline": "h", "body": "b" })),
+            Some(json!({ "round_id": r })),
         ),
     ];
     for (method, uri, body) in mutations {
@@ -509,7 +509,8 @@ async fn round_email_custom_fields_and_preview() {
     let update = |fields: Value| {
         json!({
             "name": "Round", "template_type": "round", "custom_fields": fields,
-            "template": "<mjml><mj-body><mj-section><mj-column><mj-text>{{!content}} {{?place}} {{given_name}}</mj-text></mj-column></mj-section></mj-body></mjml>",
+            "subject": "{{?headline}} – {{!round}}",
+            "template": "<mjml><mj-body><mj-section><mj-column><mj-text>{{?content}} {{?place}} {{given_name}}</mj-text></mj-column></mj-section></mj-body></mjml>",
         })
     };
     let (status, _) = admin
@@ -523,14 +524,17 @@ async fn round_email_custom_fields_and_preview() {
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     let fields = json!([
-        { "key": "place", "label": "Place", "kind": "text", "required": true, "default": null },
-        { "key": "day", "label": "Day", "kind": "date", "required": false, "default": "2026-03-05" },
+        { "key": "headline", "label": "Headline", "kind": "text", "default": "LIO - NEWS" },
+        { "key": "content", "label": "Body", "kind": "multiline", "default": null },
+        { "key": "place", "label": "Place", "kind": "text", "default": null },
+        { "key": "day", "label": "Day", "kind": "date", "default": "2026-03-05" },
     ]);
     let (status, body) = admin
         .send(Method::PUT, &base, Some(update(fields.clone())))
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["custom_fields"], fields);
+    assert_eq!(body["subject"], "{{?headline}} – {{!round}}");
 
     let (_, attachment) = admin
         .send(Method::POST, &format!("{base}/attachment"), None)
@@ -545,23 +549,26 @@ async fn round_email_custom_fields_and_preview() {
     assert_eq!(status, StatusCode::OK);
 
     // Read-only preview, also for observers: first participant by default, others on request.
-    let preview = |student_id: Option<i32>, custom: Value| {
-        json!({ "round_id": round.id, "student_id": student_id, "headline": "News",
-                "body": "See you at {{?place}}", "custom": custom })
-    };
+    let preview = |student_id: Option<i32>, custom: Value| json!({ "round_id": round.id, "student_id": student_id, "custom": custom });
     let (status, body) = observer
         .send(
             Method::POST,
             &format!("{base}/round-preview"),
-            Some(preview(None, json!({ "place": "<LGL>" }))),
+            Some(preview(
+                None,
+                json!({ "place": "<LGL>", "content": "See you **soon**" }),
+            )),
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["subject"], "LIO - NEWS – Semi-Finals");
     assert_eq!(body["student_id"], students[0].id);
     assert_eq!(body["recipients"].as_array().unwrap().len(), 2);
     let html = body["html"].as_str().unwrap();
     assert!(
-        html.contains("See you at &lt;LGL&gt;") && html.contains("Ada"),
+        html.contains("See you <strong>soon</strong>")
+            && html.contains("&lt;LGL&gt;")
+            && html.contains("Ada"),
         "{html}"
     );
     assert!(body["attachments"][0]["data_base64"].is_string(), "{body}");
@@ -570,7 +577,10 @@ async fn round_email_custom_fields_and_preview() {
         .send(
             Method::POST,
             &format!("{base}/round-preview"),
-            Some(preview(Some(students[1].id), json!({ "place": "LGL" }))),
+            Some(preview(
+                Some(students[1].id),
+                json!({ "place": "LGL", "content": "Hi" }),
+            )),
         )
         .await;
     assert_eq!(status, StatusCode::OK);
@@ -581,17 +591,21 @@ async fn round_email_custom_fields_and_preview() {
         .send(
             Method::POST,
             &format!("{base}/round-preview"),
-            Some(preview(Some(outsider.id), json!({ "place": "LGL" }))),
+            Some(preview(
+                Some(outsider.id),
+                json!({ "place": "LGL", "content": "Hi" }),
+            )),
         )
         .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 
     // Sending enforces the declaration and stores the resolved values in the job.
-    let send = |custom: Value| json!({ "round_id": round.id, "headline": "h", "body": "b", "custom": custom });
+    let send = |custom: Value| json!({ "round_id": round.id, "custom": custom });
     for bad in [
         json!({}),
-        json!({ "place": "LGL", "day": "soon" }),
-        json!({ "place": "LGL", "x": "1" }),
+        json!({ "place": "LGL" }),
+        json!({ "place": "LGL", "content": "Hi", "day": "soon" }),
+        json!({ "place": "LGL", "content": "Hi", "x": "1" }),
     ] {
         let (status, _) = admin
             .send(
@@ -606,7 +620,7 @@ async fn round_email_custom_fields_and_preview() {
         .send(
             Method::POST,
             &format!("{base}/send"),
-            Some(send(json!({ "place": "LGL" }))),
+            Some(send(json!({ "place": "LGL", "content": "Hi" }))),
         )
         .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
@@ -614,7 +628,7 @@ async fn round_email_custom_fields_and_preview() {
         .send(
             Method::POST,
             &format!("{base}/send"),
-            Some(send(json!({ "place": "LGL" }))),
+            Some(send(json!({ "place": "LGL", "content": "Hi" }))),
         )
         .await;
     assert_eq!(status, StatusCode::OK);
@@ -624,7 +638,12 @@ async fn round_email_custom_fields_and_preview() {
     let custom = &payload["global_context"]["custom"];
     assert_eq!(
         *custom,
-        json!({ "place": "LGL", "day": "2026-03-05" }),
+        json!({
+            "headline": { "kind": "text", "value": "LIO - NEWS" },
+            "content": { "kind": "markdown", "value": "Hi" },
+            "place": { "kind": "text", "value": "LGL" },
+            "day": { "kind": "date", "value": "2026-03-05" },
+        }),
         "{payload}"
     );
 }

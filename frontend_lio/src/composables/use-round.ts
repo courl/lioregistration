@@ -167,8 +167,6 @@ export const useRound = (id: MaybeRefOrGetter<RoundId | undefined>) => {
 
   const sendEmail = async (
     template_id: EmailTemplateId,
-    headline: string,
-    body: string,
     custom: CustomValues,
   ) => {
     const roundId = toValue(id)
@@ -178,7 +176,7 @@ export const useRound = (id: MaybeRefOrGetter<RoundId | undefined>) => {
 
     await api(`/admin/emails/${template_id.toString()}/send`, {
       method: "POST",
-      body: { round_id: roundId, headline, body, custom },
+      body: { round_id: roundId, custom },
     })
   }
 
