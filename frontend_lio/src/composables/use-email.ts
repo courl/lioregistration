@@ -77,7 +77,7 @@ export const useEmailTemplate = (
   const previewEmailTemplate = async (data: EmailPreviewRequest) => {
     const id_ = toValue(id)
     if (id_ === undefined) {
-      return { attachments: [], error: "Cannot load preview" }
+      return { subject: "", attachments: [], error: "Cannot load preview" }
     }
     return await api<EmailPreview>(`/admin/emails/${id_.toString()}/preview`, {
       method: "POST",

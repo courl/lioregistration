@@ -61,7 +61,7 @@ impl SendEmailProcessor {
             .all(db)
             .await?;
 
-        let subject = template.subject().to_owned();
+        let subject = template.subject.clone();
         let template =
             EmailTemplate::from_template(template.template.as_str(), &payload.global_context)
                 .map_err(|e| {

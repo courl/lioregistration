@@ -71,7 +71,7 @@ async fn preview_email(
     instance_ctx: &InstanceContext,
     email_attachment_ctx: &Arc<EmailAttachmentContext>,
 ) -> EmailPreview {
-    let subject = render_subject(template.subject(), global_ctx, instance_ctx);
+    let subject = render_subject(&template.subject, global_ctx, instance_ctx);
     match EmailTemplate::from_template(template.template.as_str(), global_ctx) {
         Ok(template) => EmailPreview {
             subject,
@@ -120,7 +120,7 @@ pub async fn preview_test_email(
     db: &impl ConnectionTrait,
 ) -> AppResult<EmailPreview> {
     let (template, attachments) = load_template_with_attachments(template_id, db).await?;
-    global_ctx.custom = template.custom_fields().resolve_values(custom)?;
+    global_ctx.custom = email_template::resolve_values(&template.custom_fields, custom)?;
     Ok(preview_email(
         &template,
         &attachments,
@@ -155,7 +155,7 @@ pub async fn send_registration_email(
     let template = load_template(TemplateType::Registration, db).await?;
 
     // Nobody fills fields for an automatic email: declared ones take their defaults.
-    let custom = template.custom_fields().resolve_values(BTreeMap::new())?;
+    let custom = email_template::resolve_values(&template.custom_fields, BTreeMap::new())?;
     let global_ctx = GlobalContext {
         edition: edition.name.clone(),
         round: Some(first_round.name),
@@ -202,7 +202,7 @@ async fn build_round_contexts(
     custom: BTreeMap<String, String>,
     db: &impl ConnectionTrait,
 ) -> AppResult<(GlobalContext, Vec<RoundRecipient>)> {
-    let custom = template.custom_fields().resolve_values(custom)?;
+    let custom = email_template::resolve_values(&template.custom_fields, custom)?;
     let details = super::rounds::details(round, db).await?;
     let edition = super::editions::get_edition(round.edition_id, db).await?;
     let registrations = super::student::load_registrations(

@@ -1,5 +1,5 @@
 use crate::entity::admin_user::UserRole;
-use crate::entity::email_template::{CustomFields, TemplateType};
+use crate::entity::email_template::{CustomField, TemplateType};
 use crate::entity::{email_attachment_template, email_template, round};
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::Auth;
@@ -27,9 +27,9 @@ pub struct EmailTemplate {
 pub struct EmailTemplateDetails {
     #[serde(flatten)]
     email: EmailTemplate,
-    subject: Option<String>,
+    subject: String,
     template: String,
-    custom_fields: CustomFields,
+    custom_fields: Vec<CustomField>,
 }
 
 #[derive(Deserialize)]
@@ -51,11 +51,11 @@ pub struct PreviewRequest {
 pub struct UpdateTemplateRequest {
     name: String,
     #[serde(default)]
-    subject: Option<String>,
+    subject: String,
     template: String,
     template_type: Option<TemplateType>,
     #[serde(default)]
-    custom_fields: CustomFields,
+    custom_fields: Vec<CustomField>,
 }
 
 #[derive(Deserialize)]
@@ -99,7 +99,7 @@ impl From<email_template::Model> for EmailTemplate {
 impl From<email_template::Model> for EmailTemplateDetails {
     fn from(model: email_template::Model) -> Self {
         let template = model.template.clone();
-        let custom_fields = model.custom_fields();
+        let custom_fields = model.custom_fields.clone();
         let subject = model.subject.clone();
         Self {
             email: model.into(),
@@ -176,7 +176,7 @@ pub async fn update_template(
     Json(request): Json<UpdateTemplateRequest>,
 ) -> AppResult<Json<EmailTemplateDetails>> {
     auth.verify(vec![UserRole::Admin])?;
-    request.custom_fields.validate()?;
+    email_template::validate_fields(&request.custom_fields)?;
     let mut template = email_template::Entity::find_by_id(id)
         .one(&state.db)
         .await?
@@ -187,7 +187,7 @@ pub async fn update_template(
     template.subject = ActiveValue::Set(request.subject);
     template.template = ActiveValue::Set(request.template);
     template.template_type = ActiveValue::Set(request.template_type);
-    template.custom_fields = ActiveValue::Set(Some(request.custom_fields));
+    template.custom_fields = ActiveValue::Set(request.custom_fields);
 
     Ok(Json(template.update(&state.db).await?.into()))
 }

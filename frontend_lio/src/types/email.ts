@@ -32,8 +32,8 @@ export interface CustomField {
 export type CustomValues = Record<string, string>
 
 export interface EmailTemplateDetails extends EmailTemplate {
-  // Subject line, may use placeholders; empty = the template name.
-  subject?: string | null
+  // Subject line, may use placeholders.
+  subject: string
   template: string
   custom_fields: CustomField[]
 }
@@ -66,7 +66,7 @@ interface AttachmentPreview {
 }
 
 export interface EmailPreview {
-  subject?: string
+  subject: string
   html?: string | null
   attachments: AttachmentPreview[]
   error?: string | null

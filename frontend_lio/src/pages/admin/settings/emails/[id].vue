@@ -25,6 +25,7 @@ const { email, loading, previewEmailTemplate, updateEmailTemplate } =
 const { attachments, createAttachment, updateAttachment, deleteAttachment } =
   useAttachments(id)
 const preview = ref<EmailPreview>({
+  subject: "",
   attachments: [],
   error: "Not computed yet",
 })
@@ -56,7 +57,7 @@ const previewLoading = ref(false)
 
 async function refreshPreview() {
   if (!email.value) {
-    preview.value = { attachments: [], error: "Not computed yet" }
+    preview.value = { subject: "", attachments: [], error: "Not computed yet" }
     return
   }
   previewLoading.value = true
@@ -199,12 +200,7 @@ function setTemplateType(value: unknown) {
           hint="Placeholders allowed, e.g. {{?headline}}"
           class="mb-2"
         >
-          <UInput
-            :model-value="email.subject ?? ''"
-            :placeholder="email.name"
-            class="w-full"
-            @update:model-value="(v) => email && (email.subject = String(v))"
-          />
+          <UInput v-model="email.subject" class="w-full" />
         </UFormField>
         <UFormField label="Template">
           <UTextarea
