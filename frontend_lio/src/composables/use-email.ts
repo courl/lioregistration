@@ -1,12 +1,16 @@
 import { type MaybeRefOrGetter, onMounted, ref, toValue, watch } from "vue"
 
 import type {
+  CustomField,
+  CustomValues,
   EmailPreview,
   EmailPreviewRequest,
   EmailTemplate,
   EmailTemplateDetails,
   EmailTemplateId,
   EmailTemplateUpdateRequest,
+  RoundEmailPreview,
+  RoundEmailPreviewRequest,
 } from "@/types/email.ts"
 
 import { api } from "@/composables/api.ts"
@@ -73,7 +77,7 @@ export const useEmailTemplate = (
   const previewEmailTemplate = async (data: EmailPreviewRequest) => {
     const id_ = toValue(id)
     if (id_ === undefined) {
-      return { attachments: [], error: "Cannot load preview" }
+      return { subject: "", attachments: [], error: "Cannot load preview" }
     }
     return await api<EmailPreview>(`/admin/emails/${id_.toString()}/preview`, {
       method: "POST",
@@ -100,3 +104,22 @@ export const useEmailTemplate = (
     previewEmailTemplate,
   }
 }
+
+// Renders a round email exactly as one participant would receive it (read-only).
+export const previewRoundEmail = async (
+  templateId: EmailTemplateId,
+  request: RoundEmailPreviewRequest,
+) =>
+  await api<RoundEmailPreview>(
+    `/admin/emails/${templateId.toString()}/round-preview`,
+    { method: "POST", body: request },
+  )
+
+// Initial values for a template's custom fields: the declared defaults, else `fallback`.
+export const defaultCustomValues = (
+  fields: CustomField[],
+  fallback: (field: CustomField) => string = () => "",
+): CustomValues =>
+  Object.fromEntries(
+    fields.map((field) => [field.key, field.default ?? fallback(field)]),
+  )

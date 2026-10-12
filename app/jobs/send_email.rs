@@ -8,7 +8,8 @@ use crate::jobs::worker::{JobResult, WorkerSettings};
 use crate::services::email_attachment::{EmailAttachmentContext, compile_typst_to_pdf};
 use crate::settings::SmtpSettings;
 use crate::utils::email_template::{
-    EmailTemplate, GlobalContext, InstanceContext, apply_global_ctx_typst, apply_instance_ctx_typst,
+    EmailTemplate, GlobalContext, InstanceContext, apply_global_ctx_typst,
+    apply_instance_ctx_typst, render_subject,
 };
 use mail_send::mail_builder::MessageBuilder;
 use mail_send::{SmtpClient, SmtpClientBuilder};
@@ -20,7 +21,6 @@ use tokio::io::{AsyncRead, AsyncWrite};
 pub struct SendEmailPayload {
     pub template_id: i32,
     pub global_context: GlobalContext,
-    pub body_markdown: String,
     pub instances: Option<Vec<(String, InstanceContext)>>,
 }
 
@@ -61,12 +61,12 @@ impl SendEmailProcessor {
             .all(db)
             .await?;
 
-        let template = EmailTemplate::from_template(
-            template.template.as_str(),
-            &payload.global_context,
-            &payload.body_markdown,
-        )
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Unable to render email: {}", e)))?;
+        let subject = template.subject.clone();
+        let template =
+            EmailTemplate::from_template(template.template.as_str(), &payload.global_context)
+                .map_err(|e| {
+                    AppError::Internal(anyhow::anyhow!("Unable to render email: {}", e))
+                })?;
 
         let mut client = {
             if let Some(smtp) = &self.smtp {
@@ -104,7 +104,7 @@ impl SendEmailProcessor {
             })
             .collect();
 
-        self.send_emails(&mut client, template, payload, attachments)
+        self.send_emails(&mut client, template, &subject, payload, attachments)
             .await
     }
 
@@ -112,6 +112,7 @@ impl SendEmailProcessor {
         &self,
         client: &mut Option<SmtpClient<T>>,
         template: EmailTemplate,
+        subject: &str,
         payload: SendEmailPayload,
         attachments: Vec<(String, String)>,
     ) -> AppResult<JobResult>
@@ -123,7 +124,11 @@ impl SendEmailProcessor {
                 client,
                 template.raw(),
                 ("Admin".into(), self.admin_email.clone()),
-                "LIO Alert".into(),
+                render_subject(
+                    subject,
+                    &payload.global_context,
+                    &InstanceContext::default(),
+                ),
                 Vec::new(),
             )
             .await?;
@@ -146,11 +151,12 @@ impl SendEmailProcessor {
                 .collect::<AppResult<Vec<_>>>();
             let result = match rendered {
                 Ok(rendered) => {
+                    let subject = render_subject(subject, &payload.global_context, &ctx);
                     self.send_one_email(
                         client,
                         template.instantiate(&ctx),
                         (ctx.given_name + " " + ctx.family_name.as_ref(), email),
-                        payload.global_context.headline.clone(),
+                        subject,
                         rendered,
                     )
                     .await

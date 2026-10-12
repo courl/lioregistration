@@ -2,6 +2,7 @@ use chrono::NaiveDate;
 use mrml::prelude::render::RenderOptions;
 use pulldown_cmark::{Options, Parser, html};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Debug, thiserror::Error)]
 pub enum EmailRenderError {
@@ -11,17 +12,31 @@ pub enum EmailRenderError {
     MjmlRender(String),
 }
 
+/// A filled-in custom field value; its kind decides how it is inserted at `{{?key}}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "camelCase")]
+pub enum CustomValue {
+    Text(String),
+    /// Markdown: rendered to HTML in emails, plain text paragraphs in attachments.
+    Markdown(String),
+    /// ISO `YYYY-MM-DD`, validated when resolved: inserted unescaped (it can't inject
+    /// anything) so Typst can parse it inside a string literal.
+    Date(String),
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct GlobalContext {
-    pub headline: String,
     pub edition: String,
     pub round: Option<String>,
     pub round_starts_at: NaiveDate,
     pub round_ends_at: NaiveDate,
     pub students: Option<Vec<(String, f32)>>,
+    /// Values of the template's custom fields (headline, body, ...), by key.
+    #[serde(default)]
+    pub custom: BTreeMap<String, CustomValue>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct InstanceContext {
     pub given_name: String,
     pub family_name: String,
@@ -35,6 +50,42 @@ pub struct EmailTemplate {
     html: String,
 }
 
+/// Where a placeholder value ends up, which decides how it is escaped.
+#[derive(Clone, Copy)]
+enum Target {
+    Html,
+    Typst,
+    /// A plain-text header line (the subject): inserted as is, collapsed to one line after.
+    Line,
+}
+
+impl Target {
+    fn escape(self, value: &str) -> String {
+        match self {
+            Self::Html => html_escape(value),
+            Self::Typst => typst_escape(value),
+            Self::Line => value.to_owned(),
+        }
+    }
+}
+
+impl CustomValue {
+    fn render(&self, target: Target) -> String {
+        match (self, target) {
+            (Self::Date(value), _) => value.clone(),
+            (Self::Markdown(value), Target::Html) => markdown_to_email_html(value),
+            // Attachments get plain text: paragraphs survive, Markdown syntax shows as written.
+            (Self::Markdown(value), Target::Typst) => value
+                .split("\n\n")
+                .map(|paragraph| typst_escape(paragraph.trim()))
+                .filter(|paragraph| !paragraph.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n\n"),
+            (Self::Text(value) | Self::Markdown(value), _) => target.escape(value),
+        }
+    }
+}
+
 fn markdown_to_email_html(source: &str) -> String {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_STRIKETHROUGH);
@@ -44,6 +95,10 @@ fn markdown_to_email_html(source: &str) -> String {
     let mut html_output = String::new();
     html::push_html(&mut html_output, parser);
     html_output
+}
+
+fn single_line(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn generate_student_table(students: &Option<Vec<(String, f32)>>) -> String {
@@ -81,18 +136,11 @@ fn generate_student_table(students: &Option<Vec<(String, f32)>>) -> String {
 }
 
 impl EmailTemplate {
-    pub fn from_template(
-        template: &str,
-        ctx: &GlobalContext,
-        body_markdown: &str,
-    ) -> Result<Self, EmailRenderError> {
-        let content_html = markdown_to_email_html(body_markdown);
-        let filled_mjml = apply_global_ctx(template, ctx)
-            .replace("{{!content}}", &content_html)
-            .replace(
-                "{{!students}}",
-                generate_student_table(&ctx.students).as_str(),
-            );
+    pub fn from_template(template: &str, ctx: &GlobalContext) -> Result<Self, EmailRenderError> {
+        let filled_mjml = apply_global_ctx(template, ctx).replace(
+            "{{!students}}",
+            generate_student_table(&ctx.students).as_str(),
+        );
 
         let parsed =
             mrml::parse(&filled_mjml).map_err(|e| EmailRenderError::MjmlParse(e.to_string()))?;
@@ -114,33 +162,41 @@ impl EmailTemplate {
     }
 }
 
-fn apply_global_ctx_with(
-    string: &str,
-    ctx: &GlobalContext,
-    escape: impl Fn(&str) -> String,
-) -> String {
-    string
-        .replace("{{!headline}}", &escape(&ctx.headline))
-        .replace("{{!edition}}", &escape(&ctx.edition))
+fn apply_global_ctx_for(string: &str, ctx: &GlobalContext, target: Target) -> String {
+    let filled = string
+        .replace("{{!edition}}", &target.escape(&ctx.edition))
         .replace(
             "{{!round}}",
-            &escape(ctx.round.as_deref().unwrap_or_default()),
+            &target.escape(ctx.round.as_deref().unwrap_or_default()),
         )
         .replace(
             "{{!round_starts_at}}",
             ctx.round_starts_at.to_string().as_str(),
         )
-        .replace("{{!round_ends_at}}", ctx.round_ends_at.to_string().as_str())
+        .replace("{{!round_ends_at}}", ctx.round_ends_at.to_string().as_str());
+    ctx.custom.iter().fold(filled, |acc, (key, value)| {
+        acc.replace(&format!("{{{{?{key}}}}}"), &value.render(target))
+    })
 }
 
 /// Fills global placeholders into an MJML email template, HTML-escaping the values.
 pub fn apply_global_ctx(string: &str, ctx: &GlobalContext) -> String {
-    apply_global_ctx_with(string, ctx, html_escape)
+    apply_global_ctx_for(string, ctx, Target::Html)
 }
 
 /// Fills global placeholders into Typst attachment source, Typst-escaping the values.
 pub fn apply_global_ctx_typst(string: &str, ctx: &GlobalContext) -> String {
-    apply_global_ctx_with(string, ctx, typst_escape)
+    apply_global_ctx_for(string, ctx, Target::Typst)
+}
+
+/// Renders a template's subject line for one recipient: every placeholder may be used,
+/// values are inserted as plain text on a single line.
+pub fn render_subject(subject: &str, global: &GlobalContext, instance: &InstanceContext) -> String {
+    single_line(&apply_instance_ctx_for(
+        &apply_global_ctx_for(subject, global, Target::Line),
+        instance,
+        Target::Line,
+    ))
 }
 
 /// Escapes text for HTML element content and attribute values.
@@ -196,11 +252,8 @@ pub fn typst_escape(value: &str) -> String {
     out
 }
 
-fn apply_instance_ctx_with(
-    string: &str,
-    ctx: &InstanceContext,
-    escape: impl Fn(&str) -> String,
-) -> String {
+fn apply_instance_ctx_for(string: &str, ctx: &InstanceContext, target: Target) -> String {
+    let escape = |value: &str| target.escape(value);
     string
         .replace("{{given_name}}", &escape(&ctx.given_name))
         .replace("{{family_name}}", &escape(&ctx.family_name))
@@ -218,12 +271,12 @@ fn apply_instance_ctx_with(
 
 /// Fills per-recipient placeholders into rendered email HTML, HTML-escaping the values.
 pub fn apply_instance_ctx_html(string: &str, ctx: &InstanceContext) -> String {
-    apply_instance_ctx_with(string, ctx, html_escape)
+    apply_instance_ctx_for(string, ctx, Target::Html)
 }
 
 /// Fills per-recipient placeholders into Typst attachment source, Typst-escaping the values.
 pub fn apply_instance_ctx_typst(string: &str, ctx: &InstanceContext) -> String {
-    apply_instance_ctx_with(string, ctx, typst_escape)
+    apply_instance_ctx_for(string, ctx, Target::Typst)
 }
 
 #[cfg(test)]
@@ -253,6 +306,65 @@ mod tests {
         assert_eq!(
             out,
             "<p>&lt;img src=x onerror=&quot;alert(&#39;x&#39;)&quot;&gt;&amp; Lovelace </p>"
+        );
+    }
+
+    fn global(custom: Vec<(&str, CustomValue)>) -> GlobalContext {
+        GlobalContext {
+            edition: "LIO 2026".into(),
+            round: Some("Finals".into()),
+            round_starts_at: NaiveDate::from_ymd_opt(2026, 3, 5).unwrap(),
+            round_ends_at: NaiveDate::from_ymd_opt(2026, 3, 5).unwrap(),
+            students: None,
+            custom: custom.into_iter().map(|(k, v)| (k.to_owned(), v)).collect(),
+        }
+    }
+
+    fn text(value: &str) -> CustomValue {
+        CustomValue::Text(value.into())
+    }
+
+    #[test]
+    fn custom_values_are_escaped_per_target() {
+        let ctx = global(vec![
+            ("place", text("<b>LGL</b> #x")),
+            ("day", CustomValue::Date("2026-03-05".into())),
+        ]);
+        assert_eq!(
+            apply_global_ctx("{{?place}} {{?day}} {{?unknown}}", &ctx),
+            "&lt;b&gt;LGL&lt;/b&gt; #x 2026-03-05 {{?unknown}}"
+        );
+        assert_eq!(
+            apply_global_ctx_typst("{{?place}} \"{{?day}}\"", &ctx),
+            "\\<b\\>LGL\\<\\/b\\> \\#x \"2026-03-05\""
+        );
+    }
+
+    #[test]
+    fn markdown_is_html_in_emails_and_plain_paragraphs_in_typst() {
+        let ctx = global(vec![(
+            "content",
+            CustomValue::Markdown("Hello **Ada**,\n\nmeet at <b>#LGL</b>\nsoon.".into()),
+        )]);
+        let html = apply_global_ctx("{{?content}}", &ctx);
+        assert!(html.contains("<strong>Ada</strong>"), "{html}");
+        assert!(html.contains("<p>meet at"), "{html}");
+        assert_eq!(
+            apply_global_ctx_typst("{{?content}}", &ctx),
+            "Hello \\*\\*Ada\\*\\*,\n\nmeet at \\<b\\>\\#LGL\\<\\/b\\> soon."
+        );
+    }
+
+    #[test]
+    fn subject_is_one_plain_line() {
+        let global = global(vec![("headline", text("News <b>&</b>\nfor"))]);
+        assert_eq!(
+            render_subject(
+                "{{?headline}} {{given_name}} – {{!edition}}",
+                &global,
+                &ctx("Ada")
+            ),
+            "News <b>&</b> for Ada – LIO 2026"
         );
     }
 

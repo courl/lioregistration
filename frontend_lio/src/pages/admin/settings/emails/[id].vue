@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from "vue"
+import { reactive, ref, watch } from "vue"
 
 import type {
+  CustomField,
+  CustomValues,
   EmailPreview,
   EmailPreviewRequest,
   EmailTemplateId,
@@ -9,7 +11,10 @@ import type {
 
 import { useConfirmDialog } from "@/composables/use-confirm-dialog.ts"
 import { useAttachments } from "@/composables/use-email-attachment.ts"
-import { useEmailTemplate } from "@/composables/use-email.ts"
+import {
+  defaultCustomValues,
+  useEmailTemplate,
+} from "@/composables/use-email.ts"
 import { useRouteId } from "@/composables/use-route-id.ts"
 import CalendarDate from "@/types/calendar-date.ts"
 
@@ -20,16 +25,16 @@ const { email, loading, previewEmailTemplate, updateEmailTemplate } =
 const { attachments, createAttachment, updateAttachment, deleteAttachment } =
   useAttachments(id)
 const preview = ref<EmailPreview>({
+  subject: "",
   attachments: [],
   error: "Not computed yet",
 })
 const tab = ref<string>("template")
-const previewTab = ref<string>("preview")
+// Test values for the template's custom fields.
+const customValues = ref<CustomValues>({})
 
-const body = ref<string>("This is a **test**")
 const global_context: EmailPreviewRequest["global_context"] = reactive({
   edition: "LIO 2026",
-  headline: "LIO - NEWS",
   round_starts_at: new CalendarDate({ year: 2025, month: 11, day: 25 }),
   round_ends_at: new CalendarDate({ year: 2026, month: 2, day: 15 }),
   students: [
@@ -52,29 +57,36 @@ const previewLoading = ref(false)
 
 async function refreshPreview() {
   if (!email.value) {
-    preview.value = { attachments: [], error: "Not computed yet" }
+    preview.value = { subject: "", attachments: [], error: "Not computed yet" }
     return
   }
   previewLoading.value = true
   try {
     preview.value = await previewEmailTemplate({
-      body: body.value,
       global_context,
       instance_context,
+      custom: customValues.value,
     })
   } finally {
     previewLoading.value = false
   }
 }
 
-// The preview renders the saved template, refresh it on load and save
-watch(email, refreshPreview)
+// Every field is required: without a default, preview with the label (or today).
+const sampleValue = (field: CustomField) =>
+  field.kind === "date" ? new CalendarDate({}).toString() : field.label
 
-const attachmentPreview = computed(() =>
-  previewTab.value.startsWith("attachment-")
-    ? preview.value.attachments.at(Number(previewTab.value.slice(11)))
-    : undefined,
-)
+// The preview renders the saved template, refresh it on load and save. Values typed in
+// for the preview are kept.
+watch(email, async (email) => {
+  const typed = customValues.value
+  customValues.value = Object.fromEntries(
+    Object.entries(
+      defaultCustomValues(email?.custom_fields ?? [], sampleValue),
+    ).map(([key, value]) => [key, typed[key] || value]),
+  )
+  await refreshPreview()
+})
 
 async function removeAttachment(index: number) {
   const attachment = attachments.value[index]
@@ -100,7 +112,6 @@ watch(
       instance_context.credentials_username = undefined
       instance_context.credentials_password = undefined
     } else {
-      global_context.headline = "Registration"
       global_context.students = []
       instance_context.credentials_username = "lio1"
 
@@ -152,6 +163,11 @@ function setTemplateType(value: unknown) {
             value: 'attachment',
           },
           {
+            icon: 'i-lucide-text-cursor-input',
+            label: 'Fields',
+            value: 'fields',
+          },
+          {
             icon: 'i-lucide-sliders-horizontal',
             label: 'Preview',
             value: 'preview',
@@ -179,6 +195,13 @@ function setTemplateType(value: unknown) {
             />
           </UFormField>
         </div>
+        <UFormField
+          label="Subject"
+          hint="Placeholders allowed, e.g. {{?headline}}"
+          class="mb-2"
+        >
+          <UInput v-model="email.subject" class="w-full" />
+        </UFormField>
         <UFormField label="Template">
           <UTextarea
             v-model="email.template"
@@ -224,6 +247,9 @@ function setTemplateType(value: unknown) {
           @click="createAttachment"
         />
       </template>
+      <template v-else-if="tab === 'fields'">
+        <CustomFieldsEditor v-model="email.custom_fields" />
+      </template>
       <template v-else-if="tab === 'preview'">
         <div class="space-y-4">
           <section class="space-y-2">
@@ -236,15 +262,6 @@ function setTemplateType(value: unknown) {
               <UFormField label="Edition">
                 <UInput
                   v-model="global_context.edition"
-                  class="w-full"
-                ></UInput>
-              </UFormField>
-              <UFormField
-                label="Headline"
-                :hidden="email.template_type === 'registration'"
-              >
-                <UInput
-                  v-model="global_context.headline"
                   class="w-full"
                 ></UInput>
               </UFormField>
@@ -271,13 +288,20 @@ function setTemplateType(value: unknown) {
                 />
               </UFormField>
             </div>
-            <UFormField
-              label="Body"
-              :hidden="email.template_type === 'registration'"
-            >
-              <UTextarea v-model="body" class="w-full" autoresize />
-            </UFormField>
           </section>
+
+          <template v-if="email.custom_fields.length > 0">
+            <USeparator />
+            <section class="space-y-2">
+              <h2 class="text-base font-semibold text-highlighted">
+                Custom Fields
+              </h2>
+              <CustomFieldInputs
+                v-model="customValues"
+                :fields="email.custom_fields"
+              />
+            </section>
+          </template>
 
           <USeparator />
           <section class="space-y-2">
@@ -342,49 +366,7 @@ function setTemplateType(value: unknown) {
         </div>
       </template>
     </div>
-    <div>
-      <UTabs
-        v-model="previewTab"
-        :items="[
-          { icon: 'i-lucide-eye', label: 'Preview', value: 'preview' },
-          ...(preview.attachments
-            ? preview.attachments.map((x, idx) => ({
-                label: x.name,
-                value: `attachment-${idx}`,
-              }))
-            : []),
-        ]"
-        variant="link"
-      />
-      <div class="rounded border border-muted h-full">
-        <template v-if="previewTab === 'preview'">
-          <!-- eslint-disable-next-line vue/no-v-html -->
-          <div v-if="preview.html" v-html="preview.html" />
-          <UError
-            v-if="preview.error"
-            :error="{
-              statusMessage: 'Cannot load preview',
-              message: preview.error,
-            }"
-            :clear="false"
-          />
-        </template>
-        <template v-else-if="attachmentPreview">
-          <PdfViewer
-            v-if="attachmentPreview.data_base64"
-            :src="attachmentPreview.data_base64"
-          />
-          <UError
-            v-if="attachmentPreview.error"
-            :error="{
-              statusMessage: 'Cannot load preview',
-              message: attachmentPreview.error,
-            }"
-            :clear="false"
-          />
-        </template>
-      </div>
-    </div>
+    <EmailPreviewPane :preview="preview" />
   </div>
   <UEmpty
     v-else-if="!loading"

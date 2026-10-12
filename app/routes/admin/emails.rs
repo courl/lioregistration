@@ -1,5 +1,5 @@
 use crate::entity::admin_user::UserRole;
-use crate::entity::email_template::TemplateType;
+use crate::entity::email_template::{CustomField, TemplateType};
 use crate::entity::{email_attachment_template, email_template, round};
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::Auth;
@@ -14,6 +14,7 @@ use sea_orm::{
     QueryFilter,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Serialize)]
 pub struct EmailTemplate {
@@ -26,7 +27,9 @@ pub struct EmailTemplate {
 pub struct EmailTemplateDetails {
     #[serde(flatten)]
     email: EmailTemplate,
+    subject: String,
     template: String,
+    custom_fields: Vec<CustomField>,
 }
 
 #[derive(Deserialize)]
@@ -37,23 +40,37 @@ pub struct TemplatesFilter {
 
 #[derive(Deserialize)]
 pub struct PreviewRequest {
-    body: String,
     global_context: GlobalContext,
     instance_context: InstanceContext,
+    /// Test values for the template's custom fields, typed by its declaration.
+    #[serde(default)]
+    custom: BTreeMap<String, String>,
 }
 
 #[derive(Deserialize)]
 pub struct UpdateTemplateRequest {
     name: String,
+    #[serde(default)]
+    subject: String,
     template: String,
     template_type: Option<TemplateType>,
+    #[serde(default)]
+    custom_fields: Vec<CustomField>,
 }
 
 #[derive(Deserialize)]
 pub struct SendEmailRequest {
     round_id: i32,
-    headline: String,
-    body: String,
+    #[serde(default)]
+    custom: BTreeMap<String, String>,
+}
+
+#[derive(Deserialize)]
+pub struct RoundPreviewRequest {
+    round_id: i32,
+    student_id: Option<i32>,
+    #[serde(default)]
+    custom: BTreeMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -82,9 +99,13 @@ impl From<email_template::Model> for EmailTemplate {
 impl From<email_template::Model> for EmailTemplateDetails {
     fn from(model: email_template::Model) -> Self {
         let template = model.template.clone();
+        let custom_fields = model.custom_fields.clone();
+        let subject = model.subject.clone();
         Self {
             email: model.into(),
+            subject,
             template,
+            custom_fields,
         }
     }
 }
@@ -155,6 +176,7 @@ pub async fn update_template(
     Json(request): Json<UpdateTemplateRequest>,
 ) -> AppResult<Json<EmailTemplateDetails>> {
     auth.verify(vec![UserRole::Admin])?;
+    email_template::validate_fields(&request.custom_fields)?;
     let mut template = email_template::Entity::find_by_id(id)
         .one(&state.db)
         .await?
@@ -162,8 +184,10 @@ pub async fn update_template(
         .into_active_model();
 
     template.name = ActiveValue::Set(request.name);
+    template.subject = ActiveValue::Set(request.subject);
     template.template = ActiveValue::Set(request.template);
     template.template_type = ActiveValue::Set(request.template_type);
+    template.custom_fields = ActiveValue::Set(request.custom_fields);
 
     Ok(Json(template.update(&state.db).await?.into()))
 }
@@ -175,26 +199,16 @@ pub async fn preview_template(
     Json(request): Json<PreviewRequest>,
 ) -> AppResult<Json<services::email_generation::EmailPreview>> {
     auth.verify(vec![UserRole::Admin])?;
-    let template = email_template::Entity::find_by_id(id)
-        .one(&state.db)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Template does not exist".into()))?;
-
-    let attachments = template
-        .find_related(email_attachment_template::Entity)
-        .all(&state.db)
-        .await?;
-
     Ok(Json(
-        services::email_generation::preview_email(
-            &template,
-            &attachments,
-            request.body.as_str(),
-            &request.global_context,
+        services::email_generation::preview_test_email(
+            id,
+            request.global_context,
             &request.instance_context,
+            request.custom,
             &state.email_attachment_ctx,
+            &state.db,
         )
-        .await,
+        .await?,
     ))
 }
 
@@ -305,12 +319,32 @@ pub async fn send_email(
         .ok_or(AppError::NotFound("Round does not exist".into()))?;
     services::editions::get_editable_edition(round.edition_id, &state.db).await?;
 
-    services::email_generation::send_round_email(
-        &template,
-        &round,
-        request.headline,
-        request.body,
-        &state.db,
-    )
-    .await
+    services::email_generation::send_round_email(&template, &round, request.custom, &state.db).await
+}
+
+/// What a round's participant would receive, rendered from the real round data. Read-only,
+/// so it also works for rounds of past editions.
+pub async fn preview_round_email(
+    State(state): State<AppState>,
+    auth: Auth,
+    Path(id): Path<i32>,
+    Json(request): Json<RoundPreviewRequest>,
+) -> AppResult<Json<services::email_generation::RoundEmailPreview>> {
+    auth.verify(vec![UserRole::Observer, UserRole::Admin])?;
+    let round = round::Entity::find_by_id(request.round_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Round does not exist".into()))?;
+
+    Ok(Json(
+        services::email_generation::preview_round_email(
+            id,
+            &round,
+            request.student_id,
+            request.custom,
+            &state.email_attachment_ctx,
+            &state.db,
+        )
+        .await?,
+    ))
 }

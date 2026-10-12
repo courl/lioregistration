@@ -58,13 +58,23 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Read version from Cargo.toml
+        id: version
+        run: |
+          version=$(sed -n '/^\[package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          if [ -z "$version" ]; then
+            echo "Could not determine package version from Cargo.toml" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - uses: docker/metadata-action@v5
         id: meta
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=raw,value=latest
-            type=sha
+            type=raw,value=v${{ steps.version.outputs.version }}
+            type=sha,format=short,prefix=v${{ steps.version.outputs.version }}-
       - uses: docker/build-push-action@v6
         with:
           context: .

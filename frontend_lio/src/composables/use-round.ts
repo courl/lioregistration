@@ -1,7 +1,7 @@
 import { type MaybeRefOrGetter, ref, toValue, watch } from "vue"
 
 import type { EditionId } from "@/types/edition.ts"
-import type { EmailTemplateId } from "@/types/email.ts"
+import type { CustomValues, EmailTemplateId } from "@/types/email.ts"
 import type {
   NewRound,
   NewTask,
@@ -167,8 +167,7 @@ export const useRound = (id: MaybeRefOrGetter<RoundId | undefined>) => {
 
   const sendEmail = async (
     template_id: EmailTemplateId,
-    headline: string,
-    body: string,
+    custom: CustomValues,
   ) => {
     const roundId = toValue(id)
     if (roundId === undefined) {
@@ -177,7 +176,7 @@ export const useRound = (id: MaybeRefOrGetter<RoundId | undefined>) => {
 
     await api(`/admin/emails/${template_id.toString()}/send`, {
       method: "POST",
-      body: { round_id: roundId, headline, body },
+      body: { round_id: roundId, custom },
     })
   }
 
