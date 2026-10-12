@@ -16,8 +16,23 @@ export interface EmailAttachment {
   template: string
 }
 
+export type CustomFieldKind = "text" | "multiline" | "date"
+
+// A value the sender fills in for each send, inserted at `{{?key}}`.
+export interface CustomField {
+  key: string
+  label: string
+  kind: CustomFieldKind
+  required: boolean
+  default?: string | null
+}
+
+// Custom field values by key; dates as ISO `YYYY-MM-DD`.
+export type CustomValues = Record<string, string>
+
 export interface EmailTemplateDetails extends EmailTemplate {
   template: string
+  custom_fields: CustomField[]
 }
 
 export type EmailTemplateUpdateRequest = Omit<EmailTemplateDetails, "id">
@@ -31,6 +46,7 @@ export interface EmailPreviewRequest {
     round_starts_at: CalendarDate
     round_ends_at: CalendarDate
     students?: [string, number][]
+    custom?: CustomValues
   }
   instance_context: {
     given_name: string
@@ -52,4 +68,17 @@ export interface EmailPreview {
   html?: string | null
   attachments: AttachmentPreview[]
   error?: string | null
+}
+
+export interface RoundEmailPreviewRequest {
+  round_id: number
+  student_id?: number
+  headline: string
+  body: string
+  custom: CustomValues
+}
+
+export interface RoundEmailPreview extends EmailPreview {
+  student_id: number
+  recipients: { student_id: number; name: string }[]
 }

@@ -1,12 +1,16 @@
 import { type MaybeRefOrGetter, onMounted, ref, toValue, watch } from "vue"
 
 import type {
+  CustomField,
+  CustomValues,
   EmailPreview,
   EmailPreviewRequest,
   EmailTemplate,
   EmailTemplateDetails,
   EmailTemplateId,
   EmailTemplateUpdateRequest,
+  RoundEmailPreview,
+  RoundEmailPreviewRequest,
 } from "@/types/email.ts"
 
 import { api } from "@/composables/api.ts"
@@ -100,3 +104,17 @@ export const useEmailTemplate = (
     previewEmailTemplate,
   }
 }
+
+// Renders a round email exactly as one participant would receive it (read-only).
+export const previewRoundEmail = async (
+  templateId: EmailTemplateId,
+  request: RoundEmailPreviewRequest,
+) =>
+  await api<RoundEmailPreview>(
+    `/admin/emails/${templateId.toString()}/round-preview`,
+    { method: "POST", body: request },
+  )
+
+// Initial values for a template's custom fields: the declared defaults.
+export const defaultCustomValues = (fields: CustomField[]): CustomValues =>
+  Object.fromEntries(fields.map((field) => [field.key, field.default ?? ""]))

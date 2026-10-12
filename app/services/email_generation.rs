@@ -14,6 +14,7 @@ use base64::Engine;
 use chrono::Local;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 #[derive(Serialize)]
@@ -119,6 +120,7 @@ pub async fn send_registration_email(
         round_starts_at: first_round.starts_at,
         round_ends_at: first_round.ends_at,
         students: None,
+        custom: BTreeMap::new(),
     };
 
     let instance_ctx = InstanceContext {
@@ -144,13 +146,23 @@ pub async fn send_registration_email(
     Ok(())
 }
 
-pub async fn send_round_email(
+/// One recipient of a round email.
+pub struct RoundRecipient {
+    pub student_id: i32,
+    pub email: String,
+    pub context: InstanceContext,
+}
+
+/// The shared context and the per-participant contexts of an email to a round's
+/// participants. Custom field values are checked against the template's declaration.
+async fn build_round_contexts(
     template: &email_template::Model,
     round: &round::Model,
     headline: String,
-    body: String,
+    custom: BTreeMap<String, String>,
     db: &impl ConnectionTrait,
-) -> AppResult<()> {
+) -> AppResult<(GlobalContext, Vec<RoundRecipient>)> {
+    let custom = template.custom_fields().resolve_values(custom)?;
     let details = super::rounds::details(round, db).await?;
     let edition = super::editions::get_edition(round.edition_id, db).await?;
     let registrations = super::student::load_registrations(
@@ -191,9 +203,10 @@ pub async fn send_round_email(
                 })
                 .collect(),
         ),
+        custom,
     };
 
-    let instances = details
+    let recipients = details
         .participants
         .into_iter()
         .map(|participant| {
@@ -210,32 +223,119 @@ pub async fn send_round_email(
                         "Database corruption: cannot find school for registration"
                     ))
                 })?;
-            Ok((
-                participant.student.email,
-                InstanceContext {
-                    given_name: participant.student.given_name.clone(),
-                    family_name: participant.student.family_name.clone(),
+            Ok(RoundRecipient {
+                student_id: participant.student.id,
+                email: participant.student.email,
+                context: InstanceContext {
+                    given_name: participant.student.given_name,
+                    family_name: participant.student.family_name,
                     school: school.name.clone(),
                     grade: registration.grade.clone(),
                     credentials_username: None,
                     credentials_password: None,
                 },
-            ))
+            })
         })
         .collect::<AppResult<_>>()?;
+
+    Ok((global_ctx, recipients))
+}
+
+pub async fn send_round_email(
+    template: &email_template::Model,
+    round: &round::Model,
+    headline: String,
+    body: String,
+    custom: BTreeMap<String, String>,
+    db: &impl ConnectionTrait,
+) -> AppResult<()> {
+    let (global_ctx, recipients) =
+        build_round_contexts(template, round, headline, custom, db).await?;
 
     jobs::enqueue(
         Job::SendEmail(SendEmailPayload {
             template_id: template.id,
             global_context: global_ctx,
             body_markdown: body,
-            instances: Some(instances),
+            instances: Some(
+                recipients
+                    .into_iter()
+                    .map(|r| (r.email, r.context))
+                    .collect(),
+            ),
         }),
         db,
     )
     .await?;
 
     Ok(())
+}
+
+#[derive(Serialize)]
+pub struct PreviewRecipient {
+    student_id: i32,
+    name: String,
+}
+
+#[derive(Serialize)]
+pub struct RoundEmailPreview {
+    #[serde(flatten)]
+    preview: EmailPreview,
+    /// Who the preview was rendered for.
+    student_id: i32,
+    /// Everyone the email would go to, for picking another preview recipient.
+    recipients: Vec<PreviewRecipient>,
+}
+
+/// Renders the email (and attachments) exactly as `student_id` — or the first participant —
+/// would receive it from `send_round_email` with the same input.
+#[allow(clippy::too_many_arguments)]
+pub async fn preview_round_email(
+    template: &email_template::Model,
+    attachments: &Vec<email_attachment_template::Model>,
+    round: &round::Model,
+    student_id: Option<i32>,
+    headline: String,
+    body: &str,
+    custom: BTreeMap<String, String>,
+    email_attachment_ctx: &Arc<EmailAttachmentContext>,
+    db: &impl ConnectionTrait,
+) -> AppResult<RoundEmailPreview> {
+    let (global_ctx, recipients) =
+        build_round_contexts(template, round, headline, custom, db).await?;
+    let recipient = match student_id {
+        Some(id) => recipients
+            .iter()
+            .find(|r| r.student_id == id)
+            .ok_or_else(|| {
+                AppError::NotFound("Student is not a participant of this round".into())
+            })?,
+        None => recipients
+            .first()
+            .ok_or_else(|| AppError::Conflict("The round has no participants to preview".into()))?,
+    };
+
+    let preview = preview_email(
+        template,
+        attachments,
+        body,
+        &global_ctx,
+        &recipient.context,
+        email_attachment_ctx,
+    )
+    .await;
+
+    Ok(RoundEmailPreview {
+        preview,
+        student_id: recipient.student_id,
+        recipients: recipients
+            .iter()
+            .map(|r| PreviewRecipient {
+                student_id: r.student_id,
+                name: format!("{} {}", r.context.given_name, r.context.family_name),
+            })
+            .collect(),
+    })
 }
 
 pub async fn send_error_email(
@@ -252,6 +352,7 @@ pub async fn send_error_email(
         round_starts_at: today,
         round_ends_at: today,
         students: None,
+        custom: BTreeMap::new(),
     };
 
     jobs::enqueue(

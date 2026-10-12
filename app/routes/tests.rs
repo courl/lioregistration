@@ -480,3 +480,151 @@ async fn login_cookie_samesite_follows_frontend_mode() {
         );
     }
 }
+
+#[tokio::test]
+async fn round_email_custom_fields_and_preview() {
+    let app = setup_test()
+        .await
+        .with_admin("admin@lio.lu", "pw")
+        .await
+        .with_user("obs@lio.lu", "pw", "Observer", UserRole::Observer)
+        .await;
+    let db = &app.state.db;
+    let edition = create_edition(db, 2026, true, date(1), date(2)).await;
+    let round = create_round(db, edition.id, "Semi-Finals", date(5), date(5)).await;
+    let school = create_school(db, "LML - Lycée Michel Lucius").await;
+    let mut students = Vec::new();
+    for name in ["Ada", "Grace"] {
+        let student = create_student(db, name, "Tester", date(2)).await;
+        create_registration(db, &edition, &school, Some(student.id)).await;
+        create_participation(db, &round, &student, ParticipationState::Accepted).await;
+        students.push(student);
+    }
+    let template = create_email_template(db, TemplateType::Round).await;
+    let admin = Client::new(&app).login("admin@lio.lu", "pw").await;
+    let observer = Client::new(&app).login("obs@lio.lu", "pw").await;
+    let base = format!("/api/admin/emails/{}", template.id);
+
+    // Declaring fields: keys are validated.
+    let update = |fields: Value| {
+        json!({
+            "name": "Round", "template_type": "round", "custom_fields": fields,
+            "template": "<mjml><mj-body><mj-section><mj-column><mj-text>{{!content}} {{?place}} {{given_name}}</mj-text></mj-column></mj-section></mj-body></mjml>",
+        })
+    };
+    let (status, _) = admin
+        .send(
+            Method::PUT,
+            &base,
+            Some(update(
+                json!([{ "key": "Bad Key", "label": "x", "kind": "text" }]),
+            )),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let fields = json!([
+        { "key": "place", "label": "Place", "kind": "text", "required": true, "default": null },
+        { "key": "day", "label": "Day", "kind": "date", "required": false, "default": "2026-03-05" },
+    ]);
+    let (status, body) = admin
+        .send(Method::PUT, &base, Some(update(fields.clone())))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["custom_fields"], fields);
+
+    let (_, attachment) = admin
+        .send(Method::POST, &format!("{base}/attachment"), None)
+        .await;
+    let (status, _) = admin
+        .send(
+            Method::PATCH,
+            &format!("{base}/attachment/{}", attachment["id"]),
+            Some(json!({ "name": "Letter", "template": "{{?place}} {{given_name}} #\"{{?day}}\".len()" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+
+    // Read-only preview, also for observers: first participant by default, others on request.
+    let preview = |student_id: Option<i32>, custom: Value| {
+        json!({ "round_id": round.id, "student_id": student_id, "headline": "News",
+                "body": "See you at {{?place}}", "custom": custom })
+    };
+    let (status, body) = observer
+        .send(
+            Method::POST,
+            &format!("{base}/round-preview"),
+            Some(preview(None, json!({ "place": "<LGL>" }))),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["student_id"], students[0].id);
+    assert_eq!(body["recipients"].as_array().unwrap().len(), 2);
+    let html = body["html"].as_str().unwrap();
+    assert!(
+        html.contains("See you at &lt;LGL&gt;") && html.contains("Ada"),
+        "{html}"
+    );
+    assert!(body["attachments"][0]["data_base64"].is_string(), "{body}");
+
+    let (status, body) = observer
+        .send(
+            Method::POST,
+            &format!("{base}/round-preview"),
+            Some(preview(Some(students[1].id), json!({ "place": "LGL" }))),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["html"].as_str().unwrap().contains("Grace"));
+
+    let outsider = create_student(db, "Eve", "Outsider", date(2)).await;
+    let (status, _) = observer
+        .send(
+            Method::POST,
+            &format!("{base}/round-preview"),
+            Some(preview(Some(outsider.id), json!({ "place": "LGL" }))),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // Sending enforces the declaration and stores the resolved values in the job.
+    let send = |custom: Value| json!({ "round_id": round.id, "headline": "h", "body": "b", "custom": custom });
+    for bad in [
+        json!({}),
+        json!({ "place": "LGL", "day": "soon" }),
+        json!({ "place": "LGL", "x": "1" }),
+    ] {
+        let (status, _) = admin
+            .send(
+                Method::POST,
+                &format!("{base}/send"),
+                Some(send(bad.clone())),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
+    }
+    let (status, _) = observer
+        .send(
+            Method::POST,
+            &format!("{base}/send"),
+            Some(send(json!({ "place": "LGL" }))),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = admin
+        .send(
+            Method::POST,
+            &format!("{base}/send"),
+            Some(send(json!({ "place": "LGL" }))),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let jobs = crate::entity::job::Entity::find().all(db).await.unwrap();
+    assert_eq!(jobs.len(), 1);
+    let payload: Value = serde_json::from_str(&jobs[0].payload).unwrap();
+    let custom = &payload["global_context"]["custom"];
+    assert_eq!(
+        *custom,
+        json!({ "place": "LGL", "day": "2026-03-05" }),
+        "{payload}"
+    );
+}

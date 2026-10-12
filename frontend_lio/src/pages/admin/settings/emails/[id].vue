@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from "vue"
+import { reactive, ref, watch } from "vue"
 
 import type {
+  CustomValues,
   EmailPreview,
   EmailPreviewRequest,
   EmailTemplateId,
@@ -9,7 +10,10 @@ import type {
 
 import { useConfirmDialog } from "@/composables/use-confirm-dialog.ts"
 import { useAttachments } from "@/composables/use-email-attachment.ts"
-import { useEmailTemplate } from "@/composables/use-email.ts"
+import {
+  defaultCustomValues,
+  useEmailTemplate,
+} from "@/composables/use-email.ts"
 import { useRouteId } from "@/composables/use-route-id.ts"
 import CalendarDate from "@/types/calendar-date.ts"
 
@@ -24,7 +28,8 @@ const preview = ref<EmailPreview>({
   error: "Not computed yet",
 })
 const tab = ref<string>("template")
-const previewTab = ref<string>("preview")
+// Test values for the template's custom fields, start from the declared defaults.
+const customValues = ref<CustomValues>({})
 
 const body = ref<string>("This is a **test**")
 const global_context: EmailPreviewRequest["global_context"] = reactive({
@@ -59,7 +64,7 @@ async function refreshPreview() {
   try {
     preview.value = await previewEmailTemplate({
       body: body.value,
-      global_context,
+      global_context: { ...global_context, custom: customValues.value },
       instance_context,
     })
   } finally {
@@ -68,13 +73,13 @@ async function refreshPreview() {
 }
 
 // The preview renders the saved template, refresh it on load and save
-watch(email, refreshPreview)
-
-const attachmentPreview = computed(() =>
-  previewTab.value.startsWith("attachment-")
-    ? preview.value.attachments.at(Number(previewTab.value.slice(11)))
-    : undefined,
-)
+watch(email, async (email) => {
+  customValues.value = {
+    ...defaultCustomValues(email?.custom_fields ?? []),
+    ...customValues.value,
+  }
+  await refreshPreview()
+})
 
 async function removeAttachment(index: number) {
   const attachment = attachments.value[index]
@@ -152,6 +157,11 @@ function setTemplateType(value: unknown) {
             value: 'attachment',
           },
           {
+            icon: 'i-lucide-text-cursor-input',
+            label: 'Fields',
+            value: 'fields',
+          },
+          {
             icon: 'i-lucide-sliders-horizontal',
             label: 'Preview',
             value: 'preview',
@@ -224,6 +234,9 @@ function setTemplateType(value: unknown) {
           @click="createAttachment"
         />
       </template>
+      <template v-else-if="tab === 'fields'">
+        <CustomFieldsEditor v-model="email.custom_fields" />
+      </template>
       <template v-else-if="tab === 'preview'">
         <div class="space-y-4">
           <section class="space-y-2">
@@ -278,6 +291,19 @@ function setTemplateType(value: unknown) {
               <UTextarea v-model="body" class="w-full" autoresize />
             </UFormField>
           </section>
+
+          <template v-if="email.custom_fields.length > 0">
+            <USeparator />
+            <section class="space-y-2">
+              <h2 class="text-base font-semibold text-highlighted">
+                Custom Fields
+              </h2>
+              <CustomFieldInputs
+                v-model="customValues"
+                :fields="email.custom_fields"
+              />
+            </section>
+          </template>
 
           <USeparator />
           <section class="space-y-2">
@@ -342,49 +368,7 @@ function setTemplateType(value: unknown) {
         </div>
       </template>
     </div>
-    <div>
-      <UTabs
-        v-model="previewTab"
-        :items="[
-          { icon: 'i-lucide-eye', label: 'Preview', value: 'preview' },
-          ...(preview.attachments
-            ? preview.attachments.map((x, idx) => ({
-                label: x.name,
-                value: `attachment-${idx}`,
-              }))
-            : []),
-        ]"
-        variant="link"
-      />
-      <div class="rounded border border-muted h-full">
-        <template v-if="previewTab === 'preview'">
-          <!-- eslint-disable-next-line vue/no-v-html -->
-          <div v-if="preview.html" v-html="preview.html" />
-          <UError
-            v-if="preview.error"
-            :error="{
-              statusMessage: 'Cannot load preview',
-              message: preview.error,
-            }"
-            :clear="false"
-          />
-        </template>
-        <template v-else-if="attachmentPreview">
-          <PdfViewer
-            v-if="attachmentPreview.data_base64"
-            :src="attachmentPreview.data_base64"
-          />
-          <UError
-            v-if="attachmentPreview.error"
-            :error="{
-              statusMessage: 'Cannot load preview',
-              message: attachmentPreview.error,
-            }"
-            :clear="false"
-          />
-        </template>
-      </div>
-    </div>
+    <EmailPreviewPane :preview="preview" />
   </div>
   <UEmpty
     v-else-if="!loading"

@@ -2,6 +2,7 @@ use chrono::NaiveDate;
 use mrml::prelude::render::RenderOptions;
 use pulldown_cmark::{Options, Parser, html};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Debug, thiserror::Error)]
 pub enum EmailRenderError {
@@ -19,6 +20,9 @@ pub struct GlobalContext {
     pub round_starts_at: NaiveDate,
     pub round_ends_at: NaiveDate,
     pub students: Option<Vec<(String, f32)>>,
+    /// Values of the template's custom fields, filled into `{{?key}}` placeholders.
+    #[serde(default)]
+    pub custom: BTreeMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -87,12 +91,17 @@ impl EmailTemplate {
         body_markdown: &str,
     ) -> Result<Self, EmailRenderError> {
         let content_html = markdown_to_email_html(body_markdown);
-        let filled_mjml = apply_global_ctx(template, ctx)
-            .replace("{{!content}}", &content_html)
-            .replace(
-                "{{!students}}",
-                generate_student_table(&ctx.students).as_str(),
-            );
+        // Custom fields go last so their placeholders also work inside the body.
+        let filled_mjml = apply_custom_ctx_with(
+            &apply_fixed_global_ctx_with(template, ctx, html_escape)
+                .replace("{{!content}}", &content_html)
+                .replace(
+                    "{{!students}}",
+                    generate_student_table(&ctx.students).as_str(),
+                ),
+            ctx,
+            html_escape,
+        );
 
         let parsed =
             mrml::parse(&filled_mjml).map_err(|e| EmailRenderError::MjmlParse(e.to_string()))?;
@@ -114,7 +123,7 @@ impl EmailTemplate {
     }
 }
 
-fn apply_global_ctx_with(
+fn apply_fixed_global_ctx_with(
     string: &str,
     ctx: &GlobalContext,
     escape: impl Fn(&str) -> String,
@@ -131,6 +140,41 @@ fn apply_global_ctx_with(
             ctx.round_starts_at.to_string().as_str(),
         )
         .replace("{{!round_ends_at}}", ctx.round_ends_at.to_string().as_str())
+}
+
+/// An ISO date (`2026-03-05`) can't inject anything, so it is inserted unescaped: Typst
+/// templates can then parse it inside a string literal, like `{{!round_starts_at}}`.
+fn is_iso_date(value: &str) -> bool {
+    value.len() == 10 && NaiveDate::parse_from_str(value, "%Y-%m-%d").is_ok()
+}
+
+fn apply_custom_ctx_with(
+    string: &str,
+    ctx: &GlobalContext,
+    escape: impl Fn(&str) -> String,
+) -> String {
+    ctx.custom
+        .iter()
+        .fold(string.to_owned(), |acc, (key, value)| {
+            let value = if is_iso_date(value) {
+                value.clone()
+            } else {
+                escape(value)
+            };
+            acc.replace(&format!("{{{{?{key}}}}}"), &value)
+        })
+}
+
+fn apply_global_ctx_with(
+    string: &str,
+    ctx: &GlobalContext,
+    escape: impl Fn(&str) -> String,
+) -> String {
+    apply_custom_ctx_with(
+        &apply_fixed_global_ctx_with(string, ctx, &escape),
+        ctx,
+        &escape,
+    )
 }
 
 /// Fills global placeholders into an MJML email template, HTML-escaping the values.
@@ -254,6 +298,50 @@ mod tests {
             out,
             "<p>&lt;img src=x onerror=&quot;alert(&#39;x&#39;)&quot;&gt;&amp; Lovelace </p>"
         );
+    }
+
+    fn global(custom: &[(&str, &str)]) -> GlobalContext {
+        GlobalContext {
+            headline: "News".into(),
+            edition: "LIO 2026".into(),
+            round: Some("Finals".into()),
+            round_starts_at: NaiveDate::from_ymd_opt(2026, 3, 5).unwrap(),
+            round_ends_at: NaiveDate::from_ymd_opt(2026, 3, 5).unwrap(),
+            students: None,
+            custom: custom
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn custom_values_are_escaped_per_target() {
+        let ctx = global(&[("place", "<b>LGL</b> #x"), ("day", "2026-03-05")]);
+        assert_eq!(
+            apply_global_ctx("{{?place}} {{?day}} {{?unknown}}", &ctx),
+            "&lt;b&gt;LGL&lt;/b&gt; #x 2026-03-05 {{?unknown}}"
+        );
+        assert_eq!(
+            apply_global_ctx_typst("{{?place}} \"{{?day}}\"", &ctx),
+            "\\<b\\>LGL\\<\\/b\\> \\#x \"2026-03-05\""
+        );
+    }
+
+    #[test]
+    fn custom_placeholders_work_in_the_body() {
+        let ctx = global(&[("place", "Lycée <A>")]);
+        let template = "<mjml><mj-body><mj-section><mj-column><mj-text>{{!content}}</mj-text></mj-column></mj-section></mj-body></mjml>";
+        let email = EmailTemplate::from_template(template, &ctx, "Meet at {{?place}}").unwrap();
+        assert!(email.raw().contains("Meet at Lycée &lt;A&gt;"));
+    }
+
+    #[test]
+    fn only_real_dates_skip_escaping() {
+        assert!(is_iso_date("2026-03-05"));
+        assert!(!is_iso_date("2026-3-5"));
+        assert!(!is_iso_date("2026-13-01"));
+        assert!(!is_iso_date("2026-03-05#x"));
     }
 
     #[test]

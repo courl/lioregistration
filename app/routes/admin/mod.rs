@@ -64,6 +64,7 @@ fn emails() -> Router<AppState> {
         .route("/{id}", put(emails::update_template))
         .route("/{id}/preview", post(emails::preview_template))
         .route("/{id}/send", post(emails::send_email))
+        .route("/{id}/round-preview", post(emails::preview_round_email))
         .route("/{id}/attachment", post(emails::add_attachment))
         .route("/{id}/attachment", get(emails::get_attachments))
         .route(

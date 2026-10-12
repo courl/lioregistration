@@ -2,7 +2,7 @@
 import { computed, ref } from "vue"
 
 import type { ParticipationData } from "@/components/rounds/modals/RoundParticipationModal.schema.ts"
-import type { EmailTemplateId } from "@/types/email.ts"
+import type { CustomValues, EmailTemplateId } from "@/types/email.ts"
 import type { Participant, RoundId, TaskId } from "@/types/round.ts"
 
 import { provideCanEdit } from "@/composables/use-can-edit.ts"
@@ -79,9 +79,10 @@ async function processSendEmail(
   email: EmailTemplateId,
   headline: string,
   body: string,
+  custom: CustomValues,
 ) {
   try {
-    await sendEmail(email, headline, body)
+    await sendEmail(email, headline, body, custom)
   } catch {
     // Already toasted by the API client
     return
@@ -136,7 +137,7 @@ async function processSendEmail(
       />
     </template>
     <template v-else-if="state === 'comm' && canEdit">
-      <RoundEmailCard @send-mail="processSendEmail" />
+      <RoundEmailCard :round-id="round.id" @send-mail="processSendEmail" />
     </template>
     <template v-else>
       <UEmpty
