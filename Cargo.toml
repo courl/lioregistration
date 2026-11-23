@@ -31,7 +31,8 @@ clap = { version="4", features = ["derive"] }
 strsim = "0.11"
 mrml = { version = "6.0.1", features = ["parse", "render"] }
 pulldown-cmark = "0.13.4"
-mail-send = "0.6.1"
+# Default features minus `dkim`, which is unused and pulls in mail-auth and a vulnerable zip.
+mail-send = { version = "0.6.1", default-features = false, features = ["digest-md5", "cram-md5", "builder", "aws_lc_rs", "tls12"] }
 rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
 typst = "0.15.1"
 typst-pdf = "0.15.1"
