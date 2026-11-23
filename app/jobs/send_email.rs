@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::Write;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::entity::{email_attachment_template, email_template};
 use crate::error::{AppError, AppResult};
@@ -16,6 +17,9 @@ use mail_send::{SmtpClient, SmtpClientBuilder};
 use sea_orm::{ConnectionTrait, EntityTrait, ModelTrait};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite};
+
+/// Per-command limit; the library's default of one hour would let a hung server block the queue.
+const SMTP_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Serialize, Deserialize)]
 pub struct SendEmailPayload {
@@ -68,32 +72,6 @@ impl SendEmailProcessor {
                     AppError::Internal(anyhow::anyhow!("Unable to render email: {}", e))
                 })?;
 
-        let mut client = {
-            if let Some(smtp) = &self.smtp {
-                Some(
-                    SmtpClientBuilder::new(smtp.host.clone(), smtp.port)
-                        .map_err(|e| {
-                            tracing::error!(error = ?e, "Failed to create SMTP client builder");
-                            AppError::Internal(anyhow::anyhow!(
-                                "Cannot create SMTP client builder: {e:?}"
-                            ))
-                        })?
-                        .implicit_tls(smtp.implicit_tls)
-                        .credentials((smtp.username.clone(), smtp.password.clone()))
-                        .connect()
-                        .await
-                        .map_err(|e| {
-                            tracing::error!(error = ?e, "Failed to connect to SMTP server");
-                            AppError::Internal(anyhow::anyhow!(
-                                "Failed to connect to SMTP server: {e:?}"
-                            ))
-                        })?,
-                )
-            } else {
-                None
-            }
-        };
-
         let attachments = attachments
             .into_iter()
             .map(|attachment| {
@@ -104,24 +82,45 @@ impl SendEmailProcessor {
             })
             .collect();
 
-        self.send_emails(&mut client, template, &subject, payload, attachments)
+        self.send_emails(template, &subject, payload, attachments)
             .await
     }
 
-    async fn send_emails<T>(
+    /// Opens an SMTP session, `None` when no SMTP server is configured.
+    async fn connect(
         &self,
-        client: &mut Option<SmtpClient<T>>,
+    ) -> AppResult<Option<SmtpClient<impl AsyncRead + AsyncWrite + Unpin + Send + use<>>>> {
+        let Some(smtp) = &self.smtp else {
+            return Ok(None);
+        };
+        let client = SmtpClientBuilder::new(smtp.host.clone(), smtp.port)
+            .map_err(|e| {
+                tracing::error!(error = ?e, "Failed to create SMTP client builder");
+                AppError::Internal(anyhow::anyhow!("Cannot create SMTP client builder: {e:?}"))
+            })?
+            .implicit_tls(smtp.implicit_tls)
+            .timeout(SMTP_TIMEOUT)
+            .credentials((smtp.username.clone(), smtp.password.clone()))
+            .connect()
+            .await
+            .map_err(|e| {
+                tracing::error!(error = ?e, "Failed to connect to SMTP server");
+                AppError::Internal(anyhow::anyhow!("Failed to connect to SMTP server: {e:?}"))
+            })?;
+        Ok(Some(client))
+    }
+
+    async fn send_emails(
+        &self,
         template: EmailTemplate,
         subject: &str,
         payload: SendEmailPayload,
         attachments: Vec<(String, String)>,
-    ) -> AppResult<JobResult>
-    where
-        T: AsyncRead + AsyncWrite + Unpin,
-    {
+    ) -> AppResult<JobResult> {
+        let mut client = self.connect().await?;
         let Some(instances) = payload.instances else {
             self.send_one_email(
-                client,
+                &mut client,
                 template.raw(),
                 ("Admin".into(), self.admin_email.clone()),
                 render_subject(
@@ -138,7 +137,30 @@ impl SendEmailProcessor {
         // Every recipient is attempted; one bad attachment or address doesn't stop the batch.
         let mut errors = Vec::new();
         let mut sent = 0usize;
-        for (email, ctx) in instances {
+        // A failed send leaves the session mid-transaction or disconnected.
+        let mut session_dirty = false;
+        let total = instances.len();
+        for (index, (email, ctx)) in instances.into_iter().enumerate() {
+            if session_dirty {
+                let usable = match &mut client {
+                    Some(client) => client.rset().await.is_ok(),
+                    None => true,
+                };
+                if !usable {
+                    match self.connect().await {
+                        Ok(fresh) => client = fresh,
+                        Err(error) => {
+                            // The server is gone: don't wait for a timeout per recipient.
+                            errors.push(AppError::Internal(anyhow::anyhow!(
+                                "SMTP connection lost, {} recipient(s) from {email} on not sent: {error}",
+                                total - index
+                            )));
+                            break;
+                        }
+                    }
+                }
+                session_dirty = false;
+            }
             let rendered = attachments
                 .iter()
                 .map(|(name, content)| {
@@ -152,14 +174,17 @@ impl SendEmailProcessor {
             let result = match rendered {
                 Ok(rendered) => {
                     let subject = render_subject(subject, &payload.global_context, &ctx);
-                    self.send_one_email(
-                        client,
-                        template.instantiate(&ctx),
-                        (ctx.given_name + " " + ctx.family_name.as_ref(), email),
-                        subject,
-                        rendered,
-                    )
-                    .await
+                    let sent = self
+                        .send_one_email(
+                            &mut client,
+                            template.instantiate(&ctx),
+                            (ctx.given_name + " " + ctx.family_name.as_ref(), email),
+                            subject,
+                            rendered,
+                        )
+                        .await;
+                    session_dirty = sent.is_err();
+                    sent
                 }
                 Err(e) => Err(AppError::Internal(anyhow::anyhow!(
                     "Cannot render attachment for {email}: {e}"

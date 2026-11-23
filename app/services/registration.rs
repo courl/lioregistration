@@ -5,6 +5,7 @@ use crate::entity::{
 };
 use crate::error::{AppError, AppResult};
 use crate::services::schools;
+use crate::utils::email_template::markdown_escape;
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveValue, DatabaseTransaction, IntoActiveModel, TransactionTrait};
 
@@ -100,7 +101,9 @@ async fn notify_registration(
     let Some(problem) = problem else { return };
     let message = format!(
         "{problem}: unable to send credentials to {} {} (registration id=`{}`)",
-        registration.given_name, registration.family_name, registration.id
+        markdown_escape(&registration.given_name),
+        markdown_escape(&registration.family_name),
+        registration.id
     );
     tracing::error!("{message}");
     if let Err(e) = txn

@@ -1,6 +1,6 @@
 use crate::entity::registration::NewRegistration;
 use crate::error::AppResult;
-use crate::middleware::rate_limit::StrictRateLimit;
+use crate::middleware::rate_limit::RegisterRateLimit;
 use crate::services;
 use crate::state::AppState;
 use axum::Json;
@@ -8,7 +8,7 @@ use axum::extract::State;
 
 #[axum::debug_handler]
 pub async fn register(
-    _rl: StrictRateLimit,
+    _rl: RegisterRateLimit,
     State(state): State<AppState>,
     Json(request): Json<NewRegistration>,
 ) -> AppResult<()> {

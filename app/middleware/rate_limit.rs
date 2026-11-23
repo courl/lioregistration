@@ -21,7 +21,7 @@ pub async fn global_rate_limit(
     Ok(next.run(Request::from_parts(parts, body)).await)
 }
 
-/// Extractor for sensitive endpoints (login, register): adding `_rl: StrictRateLimit` to a
+/// Extractor for sensitive endpoints (login): adding `_rl: StrictRateLimit` to a
 /// handler counts the request against the strict per-IP limit. Place it before body extractors.
 pub struct StrictRateLimit;
 
@@ -37,6 +37,27 @@ where
         let ip = client_ip(parts, app_state.trust_proxy)?;
         if !app_state.strict_rate_limiter.check(ip) {
             tracing::warn!("Strict rate limit exceeded for {ip}");
+            return Err(AppError::TooManyRequests);
+        }
+        Ok(Self)
+    }
+}
+
+/// Like [`StrictRateLimit`], for the public sign-up and its own, looser per-IP limit.
+pub struct RegisterRateLimit;
+
+impl<S> FromRequestParts<S> for RegisterRateLimit
+where
+    AppState: FromRef<S>,
+    S: Send + Sync,
+{
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> AppResult<Self> {
+        let app_state = AppState::from_ref(state);
+        let ip = client_ip(parts, app_state.trust_proxy)?;
+        if !app_state.register_rate_limiter.check(ip) {
+            tracing::warn!("Registration rate limit exceeded for {ip}");
             return Err(AppError::TooManyRequests);
         }
         Ok(Self)
@@ -141,5 +162,22 @@ mod tests {
             router.oneshot(get).await.unwrap().status(),
             StatusCode::TOO_MANY_REQUESTS
         );
+    }
+
+    #[tokio::test]
+    async fn register_has_its_own_limit() {
+        let mut app = setup_test().await;
+        app.state.strict_rate_limiter = Arc::new(RateLimiter::new(0, Duration::from_secs(60)));
+        app.state.register_rate_limiter = Arc::new(RateLimiter::new(2, Duration::from_secs(60)));
+        let router = routes::build(app.state);
+
+        let mut statuses = Vec::new();
+        for _ in 0..3 {
+            let register = request(Method::POST, "/api/register", [1, 1, 1, 1], "{}");
+            statuses.push(router.clone().oneshot(register).await.unwrap().status());
+        }
+        assert_ne!(statuses[0], StatusCode::TOO_MANY_REQUESTS);
+        assert_ne!(statuses[1], StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(statuses[2], StatusCode::TOO_MANY_REQUESTS);
     }
 }

@@ -44,7 +44,7 @@ export interface UpdateParticipant {
 export interface Participant {
   student: Student
   state: ParticipationState
-  points: number[] // points per task, aligned to round.tasks order (by ordinal)
+  points: (number | null)[] // points per task (null: not scored yet), aligned to round.tasks order (by ordinal)
   total: number
 }
 

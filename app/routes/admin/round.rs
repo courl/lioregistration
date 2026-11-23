@@ -77,7 +77,8 @@ pub struct UpdateTaskRequest {
 pub struct Participant {
     pub student: Student,
     pub state: ParticipationState,
-    pub points: Vec<f32>, // points per task, aligned to round.tasks order (by ordinal)
+    // points per task (null: not scored yet), aligned to round.tasks order (by ordinal)
+    pub points: Vec<Option<f32>>,
     pub total: f32,
 }
 
@@ -125,15 +126,9 @@ impl Participant {
             let score = participant
                 .scores
                 .iter()
-                .find_map(|x| {
-                    if x.task_id == task.id {
-                        Some(x.points)
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or(0.0);
-            points += score;
+                .find(|x| x.task_id == task.id)
+                .map(|x| x.points);
+            points += score.unwrap_or(0.0);
             scores.push(score);
         }
         Self {

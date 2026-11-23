@@ -51,6 +51,10 @@ async fn main() -> anyhow::Result<()> {
             settings.rate_limit.strict_max_requests,
             Duration::from_secs(settings.rate_limit.strict_window_secs),
         )),
+        register_rate_limiter: Arc::new(RateLimiter::new(
+            settings.rate_limit.register_max_requests,
+            Duration::from_secs(settings.rate_limit.register_window_secs),
+        )),
         trust_proxy: settings.rate_limit.trust_proxy,
         cross_site_frontend: !settings.cors_origins.is_empty(),
         token_generator: Arc::new(LoginTokenGenerator::from_secret(

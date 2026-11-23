@@ -51,10 +51,11 @@ async function processUpdateParticipation(
   }
   await updateParticipation(participant.student.id, {
     state: data.state,
-    points: round.value.tasks.map((task, index) => [
-      task.id,
-      data.points[index],
-    ]),
+    // Unscored tasks stay unscored instead of being saved as 0
+    points: round.value.tasks.flatMap((task, index): [TaskId, number][] => {
+      const points = data.points[index]
+      return points === null ? [] : [[task.id, points]]
+    }),
   })
 }
 

@@ -18,7 +18,9 @@ const emit = defineEmits<{
   close: [ParticipationResult]
 }>()
 
-const schema = computed(() => calculateParticipationSchema(props.tasks))
+const schema = computed(() =>
+  calculateParticipationSchema(props.tasks, props.participant.points),
+)
 
 const stateItems: {
   label: string
@@ -43,15 +45,19 @@ watch(
   { immediate: true },
 )
 
+function setPoints(index: number, value: unknown) {
+  const points = ["", null, undefined].includes(value as string)
+    ? null
+    : Number(value)
+  state.points[index] = Number.isFinite(points) ? points : null
+}
+
 function onSubmit(event: FormSubmitEvent<ParticipationData>) {
   emit("close", event.data)
 }
 
 const total = computed(() =>
-  state.points.reduce(
-    (sum, value) => sum + (Number.isFinite(value) ? value : 0),
-    0,
-  ),
+  state.points.reduce<number>((sum, value) => sum + (value ?? 0), 0),
 )
 </script>
 
@@ -79,11 +85,14 @@ const total = computed(() =>
           <div v-for="(task, index) in tasks" :key="task.id">
             <UFormField :label="task.name" :name="`points.${index}`">
               <UInput
-                v-model.number="state.points[index]"
+                :model-value="state.points[index] ?? undefined"
                 type="number"
+                step="any"
+                placeholder="Not scored"
                 :min="0"
                 :max="task.max_points"
                 :disabled="state.state === 'declined'"
+                @update:model-value="(value) => setPoints(index, value)"
               />
               <span class="ml-1"> / {{ task.max_points }}</span>
             </UFormField>

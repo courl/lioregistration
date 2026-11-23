@@ -64,6 +64,7 @@ pub mod tests {
                 db: db.clone(),
                 rate_limiter: Arc::new(RateLimiter::new(300, Duration::from_secs(60))),
                 strict_rate_limiter: Arc::new(RateLimiter::new(5, Duration::from_secs(3600))),
+                register_rate_limiter: Arc::new(RateLimiter::new(100, Duration::from_secs(3600))),
                 trust_proxy: false,
                 cross_site_frontend: false,
                 token_generator: Arc::new(LoginTokenGenerator::from_secret("secret", db.clone())),

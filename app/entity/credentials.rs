@@ -3,7 +3,8 @@
 
 use crate::error::{AppError, AppResult};
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveValue, ConnectionTrait};
+use sea_orm::sea_query::{LockBehavior, LockType};
+use sea_orm::{ActiveValue, ConnectionTrait, QueryOrder, QuerySelect};
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -28,10 +29,14 @@ pub struct Model {
 impl ActiveModelBehavior for ActiveModel {}
 
 impl Entity {
+    /// Unassigned credentials, oldest first. Locks the row on Postgres, where two concurrent
+    /// claims would otherwise read the same one (SQLite has a single writer and ignores it).
     pub fn find_free(edition_id: i32) -> Select<Entity> {
         Entity::find()
             .filter(Column::EditionId.eq(edition_id))
             .filter(Column::RegistrationId.is_null())
+            .order_by_asc(Column::Id)
+            .lock_with_behavior(LockType::Update, LockBehavior::SkipLocked)
     }
 }
 

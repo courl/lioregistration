@@ -64,6 +64,7 @@ fn spawn_rate_limit_cleanup(state: &AppState) {
     let limiters = [
         state.rate_limiter.clone(),
         state.strict_rate_limiter.clone(),
+        state.register_rate_limiter.clone(),
     ];
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_mins(1));

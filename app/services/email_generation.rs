@@ -264,7 +264,8 @@ async fn build_round_contexts(
                 })?;
             Ok(RoundRecipient {
                 student_id: participant.student.id,
-                email: participant.student.email,
+                // The address given for this edition; the student's may be years old.
+                email: registration.email.clone(),
                 context: InstanceContext {
                     given_name: participant.student.given_name,
                     family_name: participant.student.family_name,
@@ -399,4 +400,38 @@ pub async fn send_error_email(
     .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::entity::round_participation::ParticipationState;
+    use crate::utils::test_utils::tests::{
+        create_edition, create_email_template, create_participation, create_registration,
+        create_round, create_school, create_student, date, setup_test,
+    };
+    use sea_orm::{ActiveModelTrait, ActiveValue::Set, IntoActiveModel};
+
+    #[tokio::test]
+    async fn round_email_goes_to_the_editions_registration_address() {
+        let app = setup_test().await;
+        let db = &app.state.db;
+        let edition = create_edition(db, 2026, true, date(1), date(28)).await;
+        let round = create_round(db, edition.id, "Round 1", date(5), date(6)).await;
+        let school = create_school(db, "Lycée A").await;
+        let student = create_student(db, "Ada", "T", date(10)).await;
+        let mut registration = create_registration(db, &edition, &school, Some(student.id))
+            .await
+            .into_active_model();
+        registration.email = Set("new@lio.lu".into());
+        registration.update(db).await.unwrap();
+        create_participation(db, &round, &student, ParticipationState::Accepted).await;
+        let template = create_email_template(db, TemplateType::Round).await;
+
+        let (_, recipients) = build_round_contexts(&template, &round, BTreeMap::new(), db)
+            .await
+            .unwrap();
+        assert_eq!(recipients[0].email, "new@lio.lu");
+        assert_ne!(student.email, "new@lio.lu");
+    }
 }

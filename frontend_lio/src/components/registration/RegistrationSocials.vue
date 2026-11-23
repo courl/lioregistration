@@ -3,7 +3,7 @@ const socials = [
   {
     label: "Website",
     icon: "i-lucide-globe",
-    href: "https://portal.education.lu/infosolympiad/",
+    href: "https://infosolympiad.lu/",
   },
   {
     label: "Instagram",

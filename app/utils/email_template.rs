@@ -199,6 +199,19 @@ pub fn render_subject(subject: &str, global: &GlobalContext, instance: &Instance
     ))
 }
 
+/// Escapes text for a Markdown source: any ASCII punctuation may be backslash-escaped, which
+/// also covers raw HTML and links. Line breaks become spaces, so no block can be started.
+pub fn markdown_escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for c in single_line(value).chars() {
+        if c.is_ascii_punctuation() {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// Escapes text for HTML element content and attribute values.
 pub fn html_escape(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
@@ -285,6 +298,17 @@ mod tests {
     use crate::services::email_attachment::{EmailAttachmentContext, compile_typst_to_pdf};
     use std::path::PathBuf;
     use std::sync::Arc;
+
+    #[test]
+    fn markdown_escape_neutralizes_links_and_html() {
+        let html = markdown_to_email_html(&markdown_escape(
+            "[x](https://evil.lu) <img src=a>\n\n# <https://evil.lu> D'Arc",
+        ));
+        assert!(!html.contains("<a"), "{html}");
+        assert!(!html.contains("<img"), "{html}");
+        assert!(!html.contains("<h1"), "{html}");
+        assert!(html.contains("D'Arc"), "{html}");
+    }
 
     fn ctx(given_name: &str) -> InstanceContext {
         InstanceContext {

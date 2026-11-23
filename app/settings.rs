@@ -37,6 +37,13 @@ const fn default_strict_window_secs() -> u64 {
     4 * 60 * 60
 }
 
+const fn default_register_max_requests() -> usize {
+    100
+}
+const fn default_register_window_secs() -> u64 {
+    60 * 60
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct RateLimitSettings {
     /// Limit applied to every request, per client IP.
@@ -44,11 +51,17 @@ pub struct RateLimitSettings {
     pub global_max_requests: usize,
     #[serde(default = "default_global_window_secs")]
     pub global_window_secs: u64,
-    /// Limit applied to sensitive endpoints (login, register), per client IP.
+    /// Limit applied to sensitive endpoints (login), per client IP.
     #[serde(default = "default_strict_max_requests")]
     pub strict_max_requests: usize,
     #[serde(default = "default_strict_window_secs")]
     pub strict_window_secs: u64,
+    /// Limit applied to public sign-ups, per client IP. Far looser than the strict limit
+    /// because whole classes register from one school network (a single public IP).
+    #[serde(default = "default_register_max_requests")]
+    pub register_max_requests: usize,
+    #[serde(default = "default_register_window_secs")]
+    pub register_window_secs: u64,
     /// Take the client IP from `X-Forwarded-For`. Only enable behind a reverse proxy
     /// that sets this header, otherwise clients can spoof their IP.
     #[serde(default)]
@@ -62,6 +75,8 @@ impl Default for RateLimitSettings {
             global_window_secs: default_global_window_secs(),
             strict_max_requests: default_strict_max_requests(),
             strict_window_secs: default_strict_window_secs(),
+            register_max_requests: default_register_max_requests(),
+            register_window_secs: default_register_window_secs(),
             trust_proxy: false,
         }
     }

@@ -647,3 +647,38 @@ async fn round_email_custom_fields_and_preview() {
         "{payload}"
     );
 }
+
+#[tokio::test]
+async fn unscored_tasks_are_null_and_stay_unscored() {
+    let app = setup_test().await.with_admin("admin@lio.lu", "pw").await;
+    let db = &app.state.db;
+    let edition = create_edition(db, 2026, true, date(1), date(2)).await;
+    let round = create_round(db, edition.id, "Round 1", date(5), date(5)).await;
+    let scored = create_task(db, round.id, "A", 1, 10).await;
+    create_task(db, round.id, "B", 2, 10).await;
+    let school = create_school(db, "S").await;
+    let student = create_student(db, "Ada", "Tester", date(2)).await;
+    create_registration(db, &edition, &school, Some(student.id)).await;
+    create_participation(db, &round, &student, ParticipationState::Accepted).await;
+    let admin = Client::new(&app).login("admin@lio.lu", "pw").await;
+
+    let (status, _) = admin
+        .send(
+            Method::PATCH,
+            &format!(
+                "/api/admin/rounds/{}/participations/{}",
+                round.id, student.id
+            ),
+            Some(json!({ "state": "noShow", "points": [[scored.id, 0.0]] })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, body) = admin
+        .send(
+            Method::GET,
+            &format!("/api/admin/rounds/{}", round.id),
+            None,
+        )
+        .await;
+    assert_eq!(body["participants"][0]["points"], json!([0.0, null]));
+}
